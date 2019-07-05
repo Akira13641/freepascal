@@ -99,8 +99,11 @@ interface
          procedure cachenexttokenpos;
          procedure setnexttoken;
          procedure savetokenpos;
-         procedure restoretokenpos;
+         procedure restoretokenpos;		 
          procedure writetoken(t: ttoken);
+		 procedure buildplatformnewlineascii(var len: longint);
+		 procedure buildplatformnewlineutf8;
+		 procedure buildplatformnewlineunicode;
          function readtoken : ttoken;
        public
           inputfile    : tinputfile;  { current inputfile list }
@@ -3111,8 +3114,9 @@ type
             else
              ControllerType:=ct_none;
 {$POP}
-           endpos:=replaytokenbuf.pos;
-           if endpos-startpos<>expected_size then
+            lineendingtype:=tlineendingtype(tokenreadenum(sizeof(tlineendingtype)));
+            endpos:=replaytokenbuf.pos;
+            if endpos-startpos<>expected_size then
              Comment(V_Error,'Wrong size of Settings read-in');
          end;
      end;
@@ -3189,6 +3193,7 @@ type
             if ControllerSupport then
               tokenwriteenum(controllertype,sizeof(tcontrollertype));
 {$POP}
+           tokenwriteenum(lineendingtype,sizeof(tlineendingtype));
            endpos:=recordtokenbuf.pos;
            size:=endpos-startpos;
            recordtokenbuf.seek(sizepos);
@@ -4243,25 +4248,38 @@ type
     function tscannerfile.readquotedstring:string;
       var
         i : longint;
-        msgwritten : boolean;
+        msgwritten, in_multiline_string : boolean;
       begin
         i:=0;
         msgwritten:=false;
-        if (c='''') then
+        if (c in ['''', '`']) then
           begin
+		    case c of
+			  '`': in_multiline_string:=true;
+			  else in_multiline_string:=false;
+			end;
             repeat
               readchar;
               case c of
                 #26 :
                   end_of_file;
                 #10,#13 :
-                  Message(scan_f_string_exceeds_line);
+				  if not in_multiline_string then
+                    Message(scan_f_string_exceeds_line);
                 '''' :
-                  begin
-                    readchar;
-                    if c<>'''' then
-                     break;
-                  end;
+				  if not in_multiline_string then
+                    begin
+                      readchar;
+                      if c<>'''' then
+                       break;
+                    end;
+                '`' :
+				  if in_multiline_string then
+                    begin
+                      readchar;
+                      if c<>'`' then
+                       break;
+                    end;
               end;
               if i<255 then
                 begin
@@ -4389,7 +4407,7 @@ type
     procedure tscannerfile.skipuntildirective;
       var
         found : longint;
-        next_char_loaded : boolean;
+        next_char_loaded, in_multiline_string : boolean;
       begin
          found:=0;
          next_char_loaded:=false;
@@ -4447,25 +4465,41 @@ type
                  if found=1 then
                   found:=2;
                end;
-             '''' :
+             '''', '`' :
                if (current_commentstyle=comment_none) then
                 begin
+				  case c of
+				    '`': in_multiline_string:=true;
+					else in_multiline_string:=false;
+			      end;
                   repeat
                     readchar;
                     case c of
                       #26 :
                         end_of_file;
                       #10,#13 :
-                        break;
+					    if not in_multiline_string then
+                          break;
                       '''' :
-                        begin
-                          readchar;
-                          if c<>'''' then
-                           begin
-                             next_char_loaded:=true;
-                             break;
-                           end;
-                        end;
+					    if not in_multiline_string then
+                          begin
+                            readchar;
+                            if c<>'''' then
+                             begin
+                               next_char_loaded:=true;
+                               break;
+                             end;
+                          end;
+                      '`' :
+					    if in_multiline_string then
+                          begin
+                            readchar;
+                            if c<>'`' then
+                             begin
+                               next_char_loaded:=true;
+                               break;
+                             end;
+                          end;
                     end;
                   until false;
                 end;
@@ -4653,6 +4687,48 @@ type
                                Token Scanner
 ****************************************************************************}
 
+    procedure tscannerfile.buildplatformnewlineascii(var len: longint);
+	  begin
+        if target_info.newline=#13 then
+	      cstringpattern[len]:=#13
+	    else if target_info.newline=#13#10 then
+	      begin
+	  	    cstringpattern[len]:=#13;
+            if len>=length(cstringpattern) then
+              setlength(cstringpattern,length(cstringpattern)+256);
+            inc(len);
+	        cstringpattern[len]:=#10;
+	  	  end
+	    else if target_info.newline=#10 then
+	      cstringpattern[len]:=#10;
+	  end;
+	  
+    procedure tscannerfile.buildplatformnewlineutf8;
+	  begin
+	    if target_info.newline=#13 then
+		  concatwidestringchar(patternw,ord(#13))
+		else if target_info.newline=#13#10 then
+		  begin
+		    concatwidestringchar(patternw,ord(#13));
+			concatwidestringchar(patternw,ord(#10));
+		  end
+		else if target_info.newline=#10 then
+		  concatwidestringchar(patternw,ord(#10));
+	  end;
+	  
+    procedure tscannerfile.buildplatformnewlineunicode;
+	  begin
+	    if target_info.newline=#13 then
+          concatwidestringchar(patternw,asciichar2unicode(#13))
+		else if target_info.newline=#13#10 then
+          begin
+           concatwidestringchar(patternw,asciichar2unicode(#13));
+           concatwidestringchar(patternw,asciichar2unicode(#10));
+          end
+		else if target_info.newline=#10 then
+		  concatwidestringchar(patternw,asciichar2unicode(#10));
+	  end;
+	  
     procedure tscannerfile.readtoken(allowrecordtoken:boolean);
       var
         code    : integer;
@@ -4664,6 +4740,7 @@ type
         mac     : tmacro;
         asciinr : string[33];
         iswidestring : boolean;
+		in_multiline_string: boolean;
       label
          exit_label;
       begin
@@ -5098,8 +5175,12 @@ type
                  goto exit_label;
                end;
 
-             '''','#','^' :
+             '''','#','^','`' :
                begin
+			     case c of
+				   '`': in_multiline_string:=true;
+				   else in_multiline_string:=false;
+				 end;
                  len:=0;
                  cstringpattern:='';
                  iswidestring:=false;
@@ -5210,21 +5291,34 @@ type
                               cstringpattern[len]:=chr(m);
                            end;
                        end;
-                     '''' :
+                     '''', '`' :
                        begin
+			             case c of
+				           '`' : in_multiline_string:=true;
+				           else in_multiline_string:=false;
+				         end;
                          repeat
                            readchar;
                            case c of
                              #26 :
                                end_of_file;
                              #10,#13 :
-                               Message(scan_f_string_exceeds_line);
+							   if not in_multiline_string then
+                                 Message(scan_f_string_exceeds_line);
                              '''' :
-                               begin
-                                 readchar;
-                                 if c<>'''' then
-                                  break;
-                               end;
+							   if not in_multiline_string then
+                                 begin
+                                   readchar;
+                                   if c<>'''' then
+                                    break;
+                                 end;
+                             '`' :
+							   if in_multiline_string then
+                                 begin
+                                   readchar;
+                                   if c<>'`' then
+                                    break;
+                                 end;
                            end;
                            { interpret as utf-8 string? }
                            if (ord(c)>=$80) and (current_settings.sourcecodepage=CP_UTF8) then
@@ -5300,17 +5394,65 @@ type
                              end
                            else if iswidestring then
                              begin
-                               if current_settings.sourcecodepage=CP_UTF8 then
-                                 concatwidestringchar(patternw,ord(c))
-                               else
-                                 concatwidestringchar(patternw,asciichar2unicode(c))
+							   if c in [#13, #10] then
+							     begin
+								   if current_settings.sourcecodepage=CP_UTF8 then
+								     begin
+								       case current_settings.lineendingtype of
+									     le_cr: concatwidestringchar(patternw,ord(#13));
+									     le_crlf:
+									       begin
+									  	   concatwidestringchar(patternw,ord(#13));
+									  	   concatwidestringchar(patternw,ord(#10));
+									  	 end;
+									     le_lf: concatwidestringchar(patternw,ord(#10));
+										 le_platform: buildplatformnewlineutf8;
+										 le_raw: concatwidestringchar(patternw,ord(c));
+									   end;
+									 end
+								   else
+								     case current_settings.lineendingtype of
+									   le_cr: concatwidestringchar(patternw,asciichar2unicode(#13));
+									   le_crlf:
+									     begin
+										   concatwidestringchar(patternw,asciichar2unicode(#13));
+										   concatwidestringchar(patternw,asciichar2unicode(#10));
+										 end;
+									   le_lf: concatwidestringchar(patternw,asciichar2unicode(#10));
+									   le_platform: buildplatformnewlineunicode;
+									   le_raw: concatwidestringchar(patternw,asciichar2unicode(c));
+									 end;								   
+								 end
+							   else
+                                 if current_settings.sourcecodepage=CP_UTF8 then
+                                   concatwidestringchar(patternw,ord(c))
+                                 else
+                                   concatwidestringchar(patternw,asciichar2unicode(c));
                              end
                            else
                              begin
                                if len>=length(cstringpattern) then
                                  setlength(cstringpattern,length(cstringpattern)+256);
                                 inc(len);
-                                cstringpattern[len]:=c;
+								if c in [#13, #10] then
+								  begin
+								    case current_settings.lineendingtype of
+									  le_cr: cstringpattern[len]:=#13;
+									  le_crlf:
+									    begin
+								          cstringpattern[len]:=#13;
+                                          if len>=length(cstringpattern) then
+                                            setlength(cstringpattern,length(cstringpattern)+256);
+                                          inc(len);
+										  cstringpattern[len]:=#10;
+										end;
+								      le_lf: cstringpattern[len]:=#10;
+									  le_platform: buildplatformnewlineascii(len);
+									  le_raw: cstringpattern[len]:=c;
+									end;
+								  end
+								else
+                                  cstringpattern[len]:=c;
                              end;
                          until false;
                        end;
@@ -5480,7 +5622,7 @@ exit_label:
                current_scanner.preproc_pattern:=pattern;
                readpreproc:=optoken;
              end;
-           '''' :
+           '''', '`' :
              begin
                readquotedstring;
                current_scanner.preproc_pattern:=cstringpattern;

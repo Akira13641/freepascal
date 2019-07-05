@@ -183,6 +183,8 @@ interface
 
          { WARNING: this pointer cannot be written as such in record token }
          pmessage : pmessagestaterecord;
+		 
+		 lineendingtype : tlineendingtype;
        end;
 
     const
@@ -572,6 +574,7 @@ interface
 {$endif defined(LLVM) and not defined(GENERIC_CPU)}
         controllertype : ct_none;
         pmessage : nil;
+		lineendingtype : le_raw
       );
 
     var

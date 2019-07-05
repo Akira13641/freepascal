@@ -1002,7 +1002,26 @@ unit scandir;
               Message1(scan_w_illegal_switch,s)
           end;
       end;
-
+	  
+    procedure dir_multilinestringlineending;
+      var
+        hs : string;
+      begin
+        current_scanner.skipspace;
+        hs:=current_scanner.readid;
+        if (hs='CR') then
+          current_settings.lineendingtype:=le_cr
+        else if (hs='CRLF') then
+          current_settings.lineendingtype:=le_crlf
+        else if (hs='LF') then
+          current_settings.lineendingtype:=le_lf
+        else if (hs='PLATFORM') then
+          current_settings.lineendingtype:=le_platform
+        else if (hs='RAW') then
+          current_settings.lineendingtype:=le_raw
+        else
+          Message(scan_e_unknown_lineending_type);
+      end;
 
     procedure dir_namespace;
       var
@@ -1973,6 +1992,7 @@ unit scandir;
         AddDirective('MMX',directive_all, @dir_mmx);
         AddDirective('MODE',directive_all, @dir_mode);
         AddDirective('MODESWITCH',directive_all, @dir_modeswitch);
+		AddDirective('MULTILINESTRINGLINENDING',directive_all, @dir_multilinestringlineending);
         AddDirective('NAMESPACE',directive_all, @dir_namespace);
         AddDirective('NODEFINE',directive_all, @dir_nodefine);
         AddDirective('NOTE',directive_all, @dir_note);
