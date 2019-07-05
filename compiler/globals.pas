@@ -184,7 +184,7 @@ interface
          { WARNING: this pointer cannot be written as such in record token }
          pmessage : pmessagestaterecord;
 		 
-		 lineendingtype : tlineendingtype;
+         lineendingtype : tlineendingtype;
        end;
 
     const
