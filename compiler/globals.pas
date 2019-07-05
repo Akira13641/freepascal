@@ -183,7 +183,7 @@ interface
 
          { WARNING: this pointer cannot be written as such in record token }
          pmessage : pmessagestaterecord;
-		 
+         
          lineendingtype : tlineendingtype;
        end;
 
@@ -574,7 +574,7 @@ interface
 {$endif defined(LLVM) and not defined(GENERIC_CPU)}
         controllertype : ct_none;
         pmessage : nil;
-		lineendingtype : le_raw
+        lineendingtype : le_raw
       );
 
     var
@@ -1456,7 +1456,7 @@ implementation
        if localexepath='' then
         begin
           hs1 := ExtractFileName(exeName);
-	  hs1 := ChangeFileExt(hs1,source_info.exeext);
+      hs1 := ChangeFileExt(hs1,source_info.exeext);
 {$ifdef macos}
           FindFile(hs1,GetEnvironmentVariable('Commands'),false,localExepath);
 {$else macos}

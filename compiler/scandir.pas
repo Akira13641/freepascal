@@ -1002,7 +1002,7 @@ unit scandir;
               Message1(scan_w_illegal_switch,s)
           end;
       end;
-	  
+      
     procedure dir_multilinestringlineending;
       var
         hs : string;
@@ -1992,7 +1992,7 @@ unit scandir;
         AddDirective('MMX',directive_all, @dir_mmx);
         AddDirective('MODE',directive_all, @dir_mode);
         AddDirective('MODESWITCH',directive_all, @dir_modeswitch);
-		AddDirective('MULTILINESTRINGLINENDING',directive_all, @dir_multilinestringlineending);
+        AddDirective('MULTILINESTRINGLINENDING',directive_all, @dir_multilinestringlineending);
         AddDirective('NAMESPACE',directive_all, @dir_namespace);
         AddDirective('NODEFINE',directive_all, @dir_nodefine);
         AddDirective('NOTE',directive_all, @dir_note);
