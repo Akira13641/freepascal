@@ -99,7 +99,7 @@ interface
          procedure cachenexttokenpos;
          procedure setnexttoken;
          procedure savetokenpos;
-         procedure restoretokenpos;      
+         procedure restoretokenpos;
          procedure writetoken(t: ttoken);
          procedure buildplatformnewlineascii(var len: longint);
          procedure buildplatformnewlineutf8;
@@ -4702,7 +4702,7 @@ type
         else if target_info.newline=#10 then
           cstringpattern[len]:=#10;
       end;
-      
+
     procedure tscannerfile.buildplatformnewlineutf8;
       begin
         if target_info.newline=#13 then
@@ -4715,7 +4715,7 @@ type
         else if target_info.newline=#10 then
           concatwidestringchar(patternw,ord(#10));
       end;
-      
+
     procedure tscannerfile.buildplatformnewlineunicode;
       begin
         if target_info.newline=#13 then
@@ -4728,7 +4728,7 @@ type
         else if target_info.newline=#10 then
           concatwidestringchar(patternw,asciichar2unicode(#10));
       end;
-      
+
     procedure tscannerfile.readtoken(allowrecordtoken:boolean);
       var
         code    : integer;
@@ -5419,7 +5419,8 @@ type
                                            le_lf: concatwidestringchar(patternw,asciichar2unicode(#10));
                                            le_platform: buildplatformnewlineunicode;
                                            le_raw: concatwidestringchar(patternw,asciichar2unicode(c));
-                                         end;                                  
+                                         end;
+                                       inc(line_no);
                                      end
                                    else
                                      if current_settings.sourcecodepage=CP_UTF8 then
@@ -5448,6 +5449,7 @@ type
                                           le_platform: buildplatformnewlineascii(len);
                                           le_raw: cstringpattern[len]:=c;
                                         end;
+                                        inc(line_no);
                                       end
                                     else
                                       cstringpattern[len]:=c;
@@ -5462,7 +5464,7 @@ type
                               c:=chr(ord(c)+64)
                              else
                               c:=chr(ord(c)-64);
-                   
+
                              if iswidestring then
                                concatwidestringchar(patternw,asciichar2unicode(c))
                              else
@@ -5472,7 +5474,7 @@ type
                                   inc(len);
                                   cstringpattern[len]:=c;
                                end;
-                   
+
                              readchar;
                            end;
                          else
