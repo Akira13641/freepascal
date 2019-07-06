@@ -4254,10 +4254,12 @@ type
         msgwritten:=false;
         if (c in ['''', '`']) then
           begin
-            case c of
-              '`': in_multiline_string:=true;
-              else in_multiline_string:=false;
-            end;
+            in_multiline_string:=(c='`');
+            if in_multiline_string and (not (m_multiline_strings in current_settings.modeswitches)) then
+              begin
+                result[0]:=chr(0);
+                exit;
+              end;
             repeat
               readchar;
               case c of
@@ -4467,42 +4469,40 @@ type
                end;
              '''', '`' :
                if (current_commentstyle=comment_none) then
-                begin
-                  case c of
-                    '`': in_multiline_string:=true;
-                    else in_multiline_string:=false;
-                  end;
-                  repeat
-                    readchar;
-                    case c of
-                      #26 :
-                        end_of_file;
-                      #10,#13 :
-                        if not in_multiline_string then
-                          break;
-                      '''' :
-                        if not in_multiline_string then
-                          begin
-                            readchar;
-                            if c<>'''' then
+                 begin
+                   in_multiline_string:=(c='`');
+                   if not (in_multiline_string and (not (m_multiline_strings in current_settings.modeswitches))) then
+                     repeat
+                       readchar;
+                       case c of
+                         #26 :
+                           end_of_file;
+                         #10,#13 :
+                           if not in_multiline_string then
+                             break;
+                         '''' :
+                           if not in_multiline_string then
                              begin
-                               next_char_loaded:=true;
-                               break;
+                               readchar;
+                               if c<>'''' then
+                                begin
+                                  next_char_loaded:=true;
+                                  break;
+                                end;
                              end;
-                          end;
-                      '`' :
-                        if in_multiline_string then
-                          begin
-                            readchar;
-                            if c<>'`' then
+                         '`' :
+                           if in_multiline_string then
                              begin
-                               next_char_loaded:=true;
-                               break;
+                               readchar;
+                               if c<>'`' then
+                                begin
+                                  next_char_loaded:=true;
+                                  break;
+                                end;
                              end;
-                          end;
-                    end;
-                  until false;
-                end;
+                       end;
+                     until false;
+                 end;
              '(' :
                begin
                  if (current_commentstyle=comment_none) then
@@ -5177,330 +5177,329 @@ type
 
              '''','#','^','`' :
                begin
-                 case c of
-                   '`': in_multiline_string:=true;
-                   else in_multiline_string:=false;
-                 end;
-                 len:=0;
-                 cstringpattern:='';
-                 iswidestring:=false;
-                 if c='^' then
-                  begin
-                    readchar;
-                    c:=upcase(c);
-                    if (block_type in [bt_type,bt_const_type,bt_var_type]) or
-                       (lasttoken=_ID) or (lasttoken=_NIL) or (lasttoken=_OPERATOR) or
-                       (lasttoken=_RKLAMMER) or (lasttoken=_RECKKLAMMER) or (lasttoken=_CARET) then
-                     begin
-                       token:=_CARET;
-                       goto exit_label;
-                     end
-                    else
-                     begin
-                       inc(len);
-                       setlength(cstringpattern,256);
-                       if c<#64 then
-                         cstringpattern[len]:=chr(ord(c)+64)
-                       else
-                         cstringpattern[len]:=chr(ord(c)-64);
-                       readchar;
-                     end;
-                  end;
-                 repeat
-                   case c of
-                     '#' :
-                       begin
-                         readchar; { read # }
-                         case c of
-                           '$':
-                             begin
-                               readchar; { read leading $ }
-                               asciinr:='$';
-                               while (upcase(c) in ['A'..'F','0'..'9']) and (length(asciinr)<=7) do
-                                 begin
-                                   asciinr:=asciinr+c;
-                                   readchar;
-                                 end;
-                             end;
-                           '&':
-                             begin
-                               readchar; { read leading $ }
-                               asciinr:='&';
-                               while (upcase(c) in ['0'..'7']) and (length(asciinr)<=8) do
-                                 begin
-                                   asciinr:=asciinr+c;
-                                   readchar;
-                                 end;
-                             end;
-                           '%':
-                             begin
-                               readchar; { read leading $ }
-                               asciinr:='%';
-                               while (upcase(c) in ['0','1']) and (length(asciinr)<=22) do
-                                 begin
-                                   asciinr:=asciinr+c;
-                                   readchar;
-                                 end;
-                             end;
-                           else
-                             begin
-                               asciinr:='';
-                               while (c in ['0'..'9']) and (length(asciinr)<=8) do
-                                 begin
-                                   asciinr:=asciinr+c;
-                                   readchar;
-                                 end;
-                             end;
-                         end;
-                         val(asciinr,m,code);
-                         if (asciinr='') or (code<>0) then
-                           Message(scan_e_illegal_char_const)
-                         else if (m<0) or (m>255) or (length(asciinr)>3) then
-                           begin
-                              if (m>=0) and (m<=$10FFFF) then
-                                begin
-                                  if not iswidestring then
-                                   begin
-                                     if len>0 then
-                                       ascii2unicode(@cstringpattern[1],len,current_settings.sourcecodepage,patternw)
-                                     else
-                                       ascii2unicode(nil,len,current_settings.sourcecodepage,patternw);
-                                     iswidestring:=true;
-                                     len:=0;
-                                   end;
-                                  if m<=$FFFF then
-                                    concatwidestringchar(patternw,tcompilerwidechar(m))
-                                  else
-                                    begin
-                                      { split into surrogate pair }
-                                      dec(m,$10000);
-                                      concatwidestringchar(patternw,tcompilerwidechar((m shr 10) + $D800));
-                                      concatwidestringchar(patternw,tcompilerwidechar((m and $3FF) + $DC00));
-                                    end;
-                                end
-                              else
-                                Message(scan_e_illegal_char_const)
-                           end
-                         else if iswidestring then
-                           concatwidestringchar(patternw,asciichar2unicode(char(m)))
-                         else
-                           begin
-                             if len>=length(cstringpattern) then
-                               setlength(cstringpattern,length(cstringpattern)+256);
-                              inc(len);
-                              cstringpattern[len]:=chr(m);
-                           end;
-                       end;
-                     '''', '`' :
-                       begin
-                         case c of
-                           '`' : in_multiline_string:=true;
-                           else in_multiline_string:=false;
-                         end;
-                         repeat
-                           readchar;
-                           case c of
-                             #26 :
-                               end_of_file;
-                             #10,#13 :
-                               if not in_multiline_string then
-                                 Message(scan_f_string_exceeds_line);
-                             '''' :
-                               if not in_multiline_string then
-                                 begin
-                                   readchar;
-                                   if c<>'''' then
-                                    break;
-                                 end;
-                             '`' :
-                               if in_multiline_string then
-                                 begin
-                                   readchar;
-                                   if c<>'`' then
-                                    break;
-                                 end;
-                           end;
-                           { interpret as utf-8 string? }
-                           if (ord(c)>=$80) and (current_settings.sourcecodepage=CP_UTF8) then
-                             begin
-                               { convert existing string to an utf-8 string }
-                               if not iswidestring then
-                                 begin
-                                   if len>0 then
-                                     ascii2unicode(@cstringpattern[1],len,current_settings.sourcecodepage,patternw)
-                                   else
-                                     ascii2unicode(nil,len,current_settings.sourcecodepage,patternw);
-                                   iswidestring:=true;
-                                   len:=0;
-                                 end;
-                               { four chars }
-                               if (ord(c) and $f0)=$f0 then
-                                 begin
-                                   { this always represents a surrogate pair, so
-                                     read as 32-bit value and then split into
-                                     the corresponding pair of two wchars }
-                                   d:=ord(c) and $f;
-                                   readchar;
-                                   if (ord(c) and $c0)<>$80 then
-                                     message(scan_e_utf8_malformed);
-                                   d:=(d shl 6) or (ord(c) and $3f);
-                                   readchar;
-                                   if (ord(c) and $c0)<>$80 then
-                                     message(scan_e_utf8_malformed);
-                                   d:=(d shl 6) or (ord(c) and $3f);
-                                   readchar;
-                                   if (ord(c) and $c0)<>$80 then
-                                     message(scan_e_utf8_malformed);
-                                   d:=(d shl 6) or (ord(c) and $3f);
-                                   if d<$10000 then
-                                     message(scan_e_utf8_malformed);
-                                   d:=d-$10000;
-                                   { high surrogate }
-                                   w:=$d800+(d shr 10);
-                                   concatwidestringchar(patternw,w);
-                                   { low surrogate }
-                                   w:=$dc00+(d and $3ff);
-                                   concatwidestringchar(patternw,w);
-                                 end
-                               { three chars }
-                               else if (ord(c) and $e0)=$e0 then
-                                 begin
-                                   w:=ord(c) and $f;
-                                   readchar;
-                                   if (ord(c) and $c0)<>$80 then
-                                     message(scan_e_utf8_malformed);
-                                   w:=(w shl 6) or (ord(c) and $3f);
-                                   readchar;
-                                   if (ord(c) and $c0)<>$80 then
-                                     message(scan_e_utf8_malformed);
-                                   w:=(w shl 6) or (ord(c) and $3f);
-                                   concatwidestringchar(patternw,w);
-                                 end
-                               { two chars }
-                               else if (ord(c) and $c0)<>0 then
-                                 begin
-                                   w:=ord(c) and $1f;
-                                   readchar;
-                                   if (ord(c) and $c0)<>$80 then
-                                     message(scan_e_utf8_malformed);
-                                   w:=(w shl 6) or (ord(c) and $3f);
-                                   concatwidestringchar(patternw,w);
-                                 end
-                               { illegal }
-                               else if (ord(c) and $80)<>0 then
-                                 message(scan_e_utf8_malformed)
-                               else
-                                 concatwidestringchar(patternw,tcompilerwidechar(c))
-                             end
-                           else if iswidestring then
-                             begin
-                               if c in [#13, #10] then
-                                 begin
-                                   if current_settings.sourcecodepage=CP_UTF8 then
-                                     begin
-                                       case current_settings.lineendingtype of
-                                         le_cr: concatwidestringchar(patternw,ord(#13));
-                                         le_crlf:
-                                           begin
-                                           concatwidestringchar(patternw,ord(#13));
-                                           concatwidestringchar(patternw,ord(#10));
-                                         end;
-                                         le_lf: concatwidestringchar(patternw,ord(#10));
-                                         le_platform: buildplatformnewlineutf8;
-                                         le_raw: concatwidestringchar(patternw,ord(c));
-                                       end;
-                                     end
-                                   else
-                                     case current_settings.lineendingtype of
-                                       le_cr: concatwidestringchar(patternw,asciichar2unicode(#13));
-                                       le_crlf:
-                                         begin
-                                           concatwidestringchar(patternw,asciichar2unicode(#13));
-                                           concatwidestringchar(patternw,asciichar2unicode(#10));
-                                         end;
-                                       le_lf: concatwidestringchar(patternw,asciichar2unicode(#10));
-                                       le_platform: buildplatformnewlineunicode;
-                                       le_raw: concatwidestringchar(patternw,asciichar2unicode(c));
-                                     end;                                  
-                                 end
-                               else
-                                 if current_settings.sourcecodepage=CP_UTF8 then
-                                   concatwidestringchar(patternw,ord(c))
-                                 else
-                                   concatwidestringchar(patternw,asciichar2unicode(c));
-                             end
-                           else
-                             begin
-                               if len>=length(cstringpattern) then
-                                 setlength(cstringpattern,length(cstringpattern)+256);
-                                inc(len);
-                                if c in [#13, #10] then
-                                  begin
-                                    case current_settings.lineendingtype of
-                                      le_cr: cstringpattern[len]:=#13;
-                                      le_crlf:
-                                        begin
-                                          cstringpattern[len]:=#13;
-                                          if len>=length(cstringpattern) then
-                                            setlength(cstringpattern,length(cstringpattern)+256);
-                                          inc(len);
-                                          cstringpattern[len]:=#10;
-                                        end;
-                                      le_lf: cstringpattern[len]:=#10;
-                                      le_platform: buildplatformnewlineascii(len);
-                                      le_raw: cstringpattern[len]:=c;
-                                    end;
-                                  end
-                                else
-                                  cstringpattern[len]:=c;
-                             end;
-                         until false;
-                       end;
-                     '^' :
-                       begin
-                         readchar;
-                         c:=upcase(c);
-                         if c<#64 then
-                          c:=chr(ord(c)+64)
-                         else
-                          c:=chr(ord(c)-64);
-
-                         if iswidestring then
-                           concatwidestringchar(patternw,asciichar2unicode(c))
-                         else
-                           begin
-                             if len>=length(cstringpattern) then
-                               setlength(cstringpattern,length(cstringpattern)+256);
-                              inc(len);
-                              cstringpattern[len]:=c;
-                           end;
-
-                         readchar;
-                       end;
-                     else
-                      break;
-                   end;
-                 until false;
-                 { strings with length 1 become const chars }
-                 if iswidestring then
-                   begin
-                     if patternw^.len=1 then
-                       token:=_CWCHAR
-                     else
-                       token:=_CWSTRING;
-                   end
+                 in_multiline_string:=(c='`');
+                 if in_multiline_string and (not (m_multiline_strings in current_settings.modeswitches)) then
+                   Illegal_Char(c)
                  else
                    begin
-                     setlength(cstringpattern,len);
-                     if length(cstringpattern)=1 then
+                     len:=0;
+                     cstringpattern:='';
+                     iswidestring:=false;
+                     if c='^' then
+                      begin
+                        readchar;
+                        c:=upcase(c);
+                        if (block_type in [bt_type,bt_const_type,bt_var_type]) or
+                           (lasttoken=_ID) or (lasttoken=_NIL) or (lasttoken=_OPERATOR) or
+                           (lasttoken=_RKLAMMER) or (lasttoken=_RECKKLAMMER) or (lasttoken=_CARET) then
+                         begin
+                           token:=_CARET;
+                           goto exit_label;
+                         end
+                        else
+                         begin
+                           inc(len);
+                           setlength(cstringpattern,256);
+                           if c<#64 then
+                             cstringpattern[len]:=chr(ord(c)+64)
+                           else
+                             cstringpattern[len]:=chr(ord(c)-64);
+                           readchar;
+                         end;
+                      end;
+                     repeat
+                       case c of
+                         '#' :
+                           begin
+                             readchar; { read # }
+                             case c of
+                               '$':
+                                 begin
+                                   readchar; { read leading $ }
+                                   asciinr:='$';
+                                   while (upcase(c) in ['A'..'F','0'..'9']) and (length(asciinr)<=7) do
+                                     begin
+                                       asciinr:=asciinr+c;
+                                       readchar;
+                                     end;
+                                 end;
+                               '&':
+                                 begin
+                                   readchar; { read leading $ }
+                                   asciinr:='&';
+                                   while (upcase(c) in ['0'..'7']) and (length(asciinr)<=8) do
+                                     begin
+                                       asciinr:=asciinr+c;
+                                       readchar;
+                                     end;
+                                 end;
+                               '%':
+                                 begin
+                                   readchar; { read leading $ }
+                                   asciinr:='%';
+                                   while (upcase(c) in ['0','1']) and (length(asciinr)<=22) do
+                                     begin
+                                       asciinr:=asciinr+c;
+                                       readchar;
+                                     end;
+                                 end;
+                               else
+                                 begin
+                                   asciinr:='';
+                                   while (c in ['0'..'9']) and (length(asciinr)<=8) do
+                                     begin
+                                       asciinr:=asciinr+c;
+                                       readchar;
+                                     end;
+                                 end;
+                             end;
+                             val(asciinr,m,code);
+                             if (asciinr='') or (code<>0) then
+                               Message(scan_e_illegal_char_const)
+                             else if (m<0) or (m>255) or (length(asciinr)>3) then
+                               begin
+                                  if (m>=0) and (m<=$10FFFF) then
+                                    begin
+                                      if not iswidestring then
+                                       begin
+                                         if len>0 then
+                                           ascii2unicode(@cstringpattern[1],len,current_settings.sourcecodepage,patternw)
+                                         else
+                                           ascii2unicode(nil,len,current_settings.sourcecodepage,patternw);
+                                         iswidestring:=true;
+                                         len:=0;
+                                       end;
+                                      if m<=$FFFF then
+                                        concatwidestringchar(patternw,tcompilerwidechar(m))
+                                      else
+                                        begin
+                                          { split into surrogate pair }
+                                          dec(m,$10000);
+                                          concatwidestringchar(patternw,tcompilerwidechar((m shr 10) + $D800));
+                                          concatwidestringchar(patternw,tcompilerwidechar((m and $3FF) + $DC00));
+                                        end;
+                                    end
+                                  else
+                                    Message(scan_e_illegal_char_const)
+                               end
+                             else if iswidestring then
+                               concatwidestringchar(patternw,asciichar2unicode(char(m)))
+                             else
+                               begin
+                                 if len>=length(cstringpattern) then
+                                   setlength(cstringpattern,length(cstringpattern)+256);
+                                  inc(len);
+                                  cstringpattern[len]:=chr(m);
+                               end;
+                           end;
+                         '''', '`' :
+                           begin
+                             in_multiline_string:=(c='`');
+                             repeat
+                               readchar;
+                               case c of
+                                 #26 :
+                                   end_of_file;
+                                 #10,#13 :
+                                   if not in_multiline_string then
+                                     Message(scan_f_string_exceeds_line);
+                                 '''' :
+                                   if not in_multiline_string then
+                                     begin
+                                       readchar;
+                                       if c<>'''' then
+                                        break;
+                                     end;
+                                 '`' :
+                                   if in_multiline_string then
+                                     begin
+                                       readchar;
+                                       if c<>'`' then
+                                        break;
+                                     end;
+                               end;
+                               { interpret as utf-8 string? }
+                               if (ord(c)>=$80) and (current_settings.sourcecodepage=CP_UTF8) then
+                                 begin
+                                   { convert existing string to an utf-8 string }
+                                   if not iswidestring then
+                                     begin
+                                       if len>0 then
+                                         ascii2unicode(@cstringpattern[1],len,current_settings.sourcecodepage,patternw)
+                                       else
+                                         ascii2unicode(nil,len,current_settings.sourcecodepage,patternw);
+                                       iswidestring:=true;
+                                       len:=0;
+                                     end;
+                                   { four chars }
+                                   if (ord(c) and $f0)=$f0 then
+                                     begin
+                                       { this always represents a surrogate pair, so
+                                         read as 32-bit value and then split into
+                                         the corresponding pair of two wchars }
+                                       d:=ord(c) and $f;
+                                       readchar;
+                                       if (ord(c) and $c0)<>$80 then
+                                         message(scan_e_utf8_malformed);
+                                       d:=(d shl 6) or (ord(c) and $3f);
+                                       readchar;
+                                       if (ord(c) and $c0)<>$80 then
+                                         message(scan_e_utf8_malformed);
+                                       d:=(d shl 6) or (ord(c) and $3f);
+                                       readchar;
+                                       if (ord(c) and $c0)<>$80 then
+                                         message(scan_e_utf8_malformed);
+                                       d:=(d shl 6) or (ord(c) and $3f);
+                                       if d<$10000 then
+                                         message(scan_e_utf8_malformed);
+                                       d:=d-$10000;
+                                       { high surrogate }
+                                       w:=$d800+(d shr 10);
+                                       concatwidestringchar(patternw,w);
+                                       { low surrogate }
+                                       w:=$dc00+(d and $3ff);
+                                       concatwidestringchar(patternw,w);
+                                     end
+                                   { three chars }
+                                   else if (ord(c) and $e0)=$e0 then
+                                     begin
+                                       w:=ord(c) and $f;
+                                       readchar;
+                                       if (ord(c) and $c0)<>$80 then
+                                         message(scan_e_utf8_malformed);
+                                       w:=(w shl 6) or (ord(c) and $3f);
+                                       readchar;
+                                       if (ord(c) and $c0)<>$80 then
+                                         message(scan_e_utf8_malformed);
+                                       w:=(w shl 6) or (ord(c) and $3f);
+                                       concatwidestringchar(patternw,w);
+                                     end
+                                   { two chars }
+                                   else if (ord(c) and $c0)<>0 then
+                                     begin
+                                       w:=ord(c) and $1f;
+                                       readchar;
+                                       if (ord(c) and $c0)<>$80 then
+                                         message(scan_e_utf8_malformed);
+                                       w:=(w shl 6) or (ord(c) and $3f);
+                                       concatwidestringchar(patternw,w);
+                                     end
+                                   { illegal }
+                                   else if (ord(c) and $80)<>0 then
+                                     message(scan_e_utf8_malformed)
+                                   else
+                                     concatwidestringchar(patternw,tcompilerwidechar(c))
+                                 end
+                               else if iswidestring then
+                                 begin
+                                   if c in [#13, #10] then
+                                     begin
+                                       if current_settings.sourcecodepage=CP_UTF8 then
+                                         begin
+                                           case current_settings.lineendingtype of
+                                             le_cr: concatwidestringchar(patternw,ord(#13));
+                                             le_crlf:
+                                               begin
+                                               concatwidestringchar(patternw,ord(#13));
+                                               concatwidestringchar(patternw,ord(#10));
+                                             end;
+                                             le_lf: concatwidestringchar(patternw,ord(#10));
+                                             le_platform: buildplatformnewlineutf8;
+                                             le_raw: concatwidestringchar(patternw,ord(c));
+                                           end;
+                                         end
+                                       else
+                                         case current_settings.lineendingtype of
+                                           le_cr: concatwidestringchar(patternw,asciichar2unicode(#13));
+                                           le_crlf:
+                                             begin
+                                               concatwidestringchar(patternw,asciichar2unicode(#13));
+                                               concatwidestringchar(patternw,asciichar2unicode(#10));
+                                             end;
+                                           le_lf: concatwidestringchar(patternw,asciichar2unicode(#10));
+                                           le_platform: buildplatformnewlineunicode;
+                                           le_raw: concatwidestringchar(patternw,asciichar2unicode(c));
+                                         end;                                  
+                                     end
+                                   else
+                                     if current_settings.sourcecodepage=CP_UTF8 then
+                                       concatwidestringchar(patternw,ord(c))
+                                     else
+                                       concatwidestringchar(patternw,asciichar2unicode(c));
+                                 end
+                               else
+                                 begin
+                                   if len>=length(cstringpattern) then
+                                     setlength(cstringpattern,length(cstringpattern)+256);
+                                    inc(len);
+                                    if c in [#13, #10] then
+                                      begin
+                                        case current_settings.lineendingtype of
+                                          le_cr: cstringpattern[len]:=#13;
+                                          le_crlf:
+                                            begin
+                                              cstringpattern[len]:=#13;
+                                              if len>=length(cstringpattern) then
+                                                setlength(cstringpattern,length(cstringpattern)+256);
+                                              inc(len);
+                                              cstringpattern[len]:=#10;
+                                            end;
+                                          le_lf: cstringpattern[len]:=#10;
+                                          le_platform: buildplatformnewlineascii(len);
+                                          le_raw: cstringpattern[len]:=c;
+                                        end;
+                                      end
+                                    else
+                                      cstringpattern[len]:=c;
+                                 end;
+                             until false;
+                           end;
+                         '^' :
+                           begin
+                             readchar;
+                             c:=upcase(c);
+                             if c<#64 then
+                              c:=chr(ord(c)+64)
+                             else
+                              c:=chr(ord(c)-64);
+                   
+                             if iswidestring then
+                               concatwidestringchar(patternw,asciichar2unicode(c))
+                             else
+                               begin
+                                 if len>=length(cstringpattern) then
+                                   setlength(cstringpattern,length(cstringpattern)+256);
+                                  inc(len);
+                                  cstringpattern[len]:=c;
+                               end;
+                   
+                             readchar;
+                           end;
+                         else
+                          break;
+                       end;
+                     until false;
+                     { strings with length 1 become const chars }
+                     if iswidestring then
                        begin
-                         token:=_CCHAR;
-                         pattern:=cstringpattern;
+                         if patternw^.len=1 then
+                           token:=_CWCHAR
+                         else
+                           token:=_CWSTRING;
                        end
                      else
-                       token:=_CSTRING;
+                       begin
+                         setlength(cstringpattern,len);
+                         if length(cstringpattern)=1 then
+                           begin
+                             token:=_CCHAR;
+                             pattern:=cstringpattern;
+                           end
+                         else
+                           token:=_CSTRING;
+                       end;
+                     goto exit_label;
                    end;
-                 goto exit_label;
                end;
 
              '>' :
@@ -5623,11 +5622,12 @@ exit_label:
                readpreproc:=optoken;
              end;
            '''', '`' :
-             begin
-               readquotedstring;
-               current_scanner.preproc_pattern:=cstringpattern;
-               readpreproc:=_CSTRING;
-             end;
+             if not ((c='`') and (not (m_multiline_strings in current_settings.modeswitches))) then
+               begin
+                 readquotedstring;
+                 current_scanner.preproc_pattern:=cstringpattern;
+                 readpreproc:=_CSTRING;
+               end;
            '0'..'9' :
              begin
                readnumber;
