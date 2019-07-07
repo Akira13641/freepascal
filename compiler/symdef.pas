@@ -820,6 +820,7 @@ interface
           function  GetTypeName : string;override;
           function  mangledname : TSymStr; virtual;
           procedure setmangledname(const s : TSymStr);
+          function  needsglobalasmsym: boolean;
           procedure setcompilerprocname;
           function  fullprocname(showhidden:boolean):string;
           function  customprocname(pno: tprocnameoptions):ansistring;
@@ -1254,6 +1255,7 @@ implementation
       { module }
       fmodule,
       { other }
+      aasmbase,
       gendef,
       fpccrc,
       entfile
@@ -6556,6 +6558,18 @@ implementation
         include(procoptions,po_has_mangledname);
       end;
 
+    function tprocdef.needsglobalasmsym: boolean;
+      begin
+        result:=
+          (cs_profile in current_settings.moduleswitches) or
+          { smart linking using a library requires to promote
+            all non-nested procedures to AB_GLOBAL
+            otherwise you get undefined symbol error at linking
+            for msdos  target with -CX option for instance }
+          (create_smartlink_library and not is_nested_pd(self)) or
+          (po_global in procoptions);
+    end;
+
 
     procedure tprocdef.setcompilerprocname;
       begin
@@ -7426,7 +7440,10 @@ implementation
       var
         vmttypesym: tsym;
       begin
-        vmttypesym:=tsym(get_top_level_symtable.Find('vmtdef$'+mangledparaname));
+        if not(typesym.owner.symtabletype in [ObjectSymtable,recordsymtable]) then
+          vmttypesym:=tsym(typesym.owner.Find('vmtdef$'+mangledparaname))
+        else
+          vmttypesym:=tsym(tobjectsymtable(typesym.owner).get_unit_symtable.Find('vmtdef$'+mangledparaname));
         if not assigned(vmttypesym) or
            (vmttypesym.typ<>symconst.typesym) or
            (ttypesym(vmttypesym).typedef.typ<>recorddef) then
