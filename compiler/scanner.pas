@@ -5400,9 +5400,9 @@ type
                                              le_cr: concatwidestringchar(patternw,ord(#13));
                                              le_crlf:
                                                begin
-                                               concatwidestringchar(patternw,ord(#13));
-                                               concatwidestringchar(patternw,ord(#10));
-                                             end;
+                                                 concatwidestringchar(patternw,ord(#13));
+                                                 concatwidestringchar(patternw,ord(#10));
+                                               end;
                                              le_lf: concatwidestringchar(patternw,ord(#10));
                                              le_platform: buildplatformnewlineutf8;
                                              le_raw: concatwidestringchar(patternw,ord(c));
