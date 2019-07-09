@@ -1,6 +1,7 @@
 program tmultilinestring12;
 
 {$modeswitch MultiLineStrings}
+{$MultiLineStringTrimLeft 4}
 
 procedure TakesAString(const S: String);
 begin
@@ -8,12 +9,10 @@ begin
 end;
 
 begin
-  TakesAString(
-`
-This
-works
-just
-fine!
-`
-  );
+  TakesAString(`
+    This
+    works
+    just
+    fine!
+  `);
 end.
