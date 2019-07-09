@@ -1023,6 +1023,13 @@ unit scandir;
           Message(scan_e_unknown_lineending_type);
       end;
 
+    procedure dir_multilinestringtrimleft;
+      begin
+        current_scanner.skipspace;
+        current_scanner.readnumber;
+        val(pattern, current_settings.whitespacetrimcount);
+      end;
+
     procedure dir_namespace;
       var
         s : string;
@@ -1993,6 +2000,7 @@ unit scandir;
         AddDirective('MODE',directive_all, @dir_mode);
         AddDirective('MODESWITCH',directive_all, @dir_modeswitch);
         AddDirective('MULTILINESTRINGLINEENDING',directive_all, @dir_multilinestringlineending);
+        AddDirective('MULTILINESTRINGTRIMLEFT',directive_all, @dir_multilinestringtrimleft);
         AddDirective('NAMESPACE',directive_all, @dir_namespace);
         AddDirective('NODEFINE',directive_all, @dir_nodefine);
         AddDirective('NOTE',directive_all, @dir_note);

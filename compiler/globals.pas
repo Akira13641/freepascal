@@ -185,6 +185,8 @@ interface
          pmessage : pmessagestaterecord;
          
          lineendingtype : tlineendingtype;
+
+         whitespacetrimcount : longint;
        end;
 
     const
@@ -574,7 +576,8 @@ interface
 {$endif defined(LLVM) and not defined(GENERIC_CPU)}
         controllertype : ct_none;
         pmessage : nil;
-        lineendingtype : le_raw
+        lineendingtype : le_raw;
+        whitespacetrimcount : 0
       );
 
     var
