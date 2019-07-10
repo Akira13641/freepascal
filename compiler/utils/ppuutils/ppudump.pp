@@ -2371,6 +2371,7 @@ const
              ControllerType:=ct_none;
 {$POP}
            lineendingtype:=tlineendingtype(tokenreadenum(sizeof(tlineendingtype)));
+           whitespacetrimcount:=tokenreadlongword;
            endpos:=tbi;
            if endpos-startpos<>expected_size then
              Writeln(['Wrong size of Settings read-in: ',expected_size,' expected, but got ',endpos-startpos]);
