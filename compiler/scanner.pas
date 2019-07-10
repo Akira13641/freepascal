@@ -4254,7 +4254,7 @@ type
       begin
         i:=0;
         msgwritten:=false;
-        if (c in ['''', '`']) then
+        if (c in ['''','`']) then
           begin
             in_multiline_string:=(c='`');
             if in_multiline_string and (not (m_multiline_strings in current_settings.modeswitches)) then
@@ -4469,7 +4469,7 @@ type
                  if found=1 then
                   found:=2;
                end;
-             '''', '`' :
+             '''','`' :
                if (current_commentstyle=comment_none) then
                  begin
                    in_multiline_string:=(c='`');
