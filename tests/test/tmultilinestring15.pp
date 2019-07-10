@@ -10,9 +10,9 @@ const X = `
 `;
 
 const Y = `
-  Goodbye
-  every
-  body!
+    Goodbye
+    every
+    body!
 `;
 
 begin
@@ -21,6 +21,9 @@ begin
   Write(
     'Single line string ' +
     `
+    Multi
+    line
+    string
     ` +
     Y +
     X
