@@ -221,7 +221,6 @@ interface
           function  readoptionalstate(fallback:char):char;
           function  readstatedefault:char;
           procedure skipspace;
-          procedure skipspacesandtabs(num: longint);
           procedure skipuntildirective;
           procedure skipcomment(read_first_char:boolean);
           procedure skipdelphicomment;
@@ -3116,7 +3115,7 @@ type
              ControllerType:=ct_none;
 {$POP}
             lineendingtype:=tlineendingtype(tokenreadenum(sizeof(tlineendingtype)));
-            whitespacetrimcount:=tokenreadlongint;
+            whitespacetrimcount:=tokenreadlongword;
             endpos:=replaytokenbuf.pos;
             if endpos-startpos<>expected_size then
              Comment(V_Error,'Wrong size of Settings read-in');
@@ -3196,7 +3195,7 @@ type
               tokenwriteenum(controllertype,sizeof(tcontrollertype));
 {$POP}
            tokenwriteenum(lineendingtype,sizeof(tlineendingtype));
-           tokenwritelongint(whitespacetrimcount);
+           tokenwritelongword(whitespacetrimcount);
            endpos:=recordtokenbuf.pos;
            size:=endpos-startpos;
            recordtokenbuf.seek(sizepos);
@@ -4408,14 +4407,6 @@ type
         until false;
       end;
 
-    procedure tscannerfile.skipspacesandtabs(num: longint);
-      begin
-        while (c in [#9, #11, #32]) and (num > 0) do
-          begin
-            readchar;
-            dec(num);
-          end;
-      end;
 
     procedure tscannerfile.skipuntildirective;
       var
@@ -4752,8 +4743,9 @@ type
         asciinr : string[33];
         iswidestring : boolean;
         in_multiline_string, had_newline: boolean;
+        trimcount: longword;
       label
-        quote_label, exit_label;
+        exit_label;
       begin
         had_newline:=false;
         flushpendingswitchesstate;
@@ -5307,35 +5299,38 @@ type
                          in_multiline_string:=(c='`');
                          repeat
                            readchar;
-                           quote_label:
-                             case c of
-                               #26 :
-                                 end_of_file;
-                               #9,#11,#32 :
-                                 if (current_settings.whitespacetrimcount > 0) and had_newline then
-                                   begin
-                                     skipspacesandtabs(current_settings.whitespacetrimcount);
-                                     had_newline:=false;
-                                     goto quote_label;
-                                   end;
-                               #10,#13 :
-                                 if not in_multiline_string then
-                                   Message(scan_f_string_exceeds_line);
-                               '''' :
-                                 if not in_multiline_string then
-                                   begin
-                                     readchar;
-                                     if c<>'''' then
-                                      break;
-                                   end;
-                               '`' :
-                                 if in_multiline_string then
-                                   begin
-                                     readchar;
-                                     if c<>'`' then
-                                      break;
-                                   end;
-                             end;
+                           case c of
+                             #26 :
+                               end_of_file;
+                             #9,#11,#32 :
+                               if (current_settings.whitespacetrimcount > 0) and had_newline then
+                                 begin
+                                   trimcount:=current_settings.whitespacetrimcount;
+                                   while (c in [#9,#11,#32]) and (trimcount > 0) do
+                                     begin
+                                       readchar;
+                                       dec(trimcount);
+                                     end;
+                                   had_newline:=false;
+                                 end;
+                             #10,#13 :
+                               if not in_multiline_string then
+                                 Message(scan_f_string_exceeds_line);
+                             '''' :
+                               if not in_multiline_string then
+                                 begin
+                                   readchar;
+                                   if c<>'''' then
+                                    break;
+                                 end;
+                             '`' :
+                               if in_multiline_string then
+                                 begin
+                                   readchar;
+                                   if c<>'`' then
+                                    break;
+                                 end;
+                           end;
                            { interpret as utf-8 string? }
                            if (ord(c)>=$80) and (current_settings.sourcecodepage=CP_UTF8) then
                              begin
@@ -5410,7 +5405,7 @@ type
                              end
                            else if iswidestring then
                              begin
-                               if c in [#13, #10] then
+                               if c in [#13,#10] then
                                  begin
                                    if current_settings.sourcecodepage=CP_UTF8 then
                                      begin
@@ -5452,7 +5447,7 @@ type
                                if len>=length(cstringpattern) then
                                  setlength(cstringpattern,length(cstringpattern)+256);
                                 inc(len);
-                                if c in [#13, #10] then
+                                if c in [#13,#10] then
                                   begin
                                     case current_settings.lineendingtype of
                                       le_cr: cstringpattern[len]:=#13;
