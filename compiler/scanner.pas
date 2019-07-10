@@ -4742,12 +4742,13 @@ type
         mac     : tmacro;
         asciinr : string[33];
         iswidestring : boolean;
-        in_multiline_string, had_newline: boolean;
+        in_multiline_string,had_newline,first_multiline: boolean;
         trimcount: longword;
       label
         quote_label, exit_label;
       begin
         had_newline:=false;
+        first_multiline:=false;
         flushpendingswitchesstate;
 
         { record tokens? }
@@ -5297,6 +5298,7 @@ type
                      '''', '`' :
                        begin
                          in_multiline_string:=(c='`');
+                         first_multiline:=in_multiline_string;
                          repeat
                            readchar;
                            quote_label:
@@ -5304,7 +5306,7 @@ type
                                #26 :
                                  end_of_file;
                                #9,#11,#32 :
-                                 if (current_settings.whitespacetrimcount > 0) and had_newline then
+                                 if (current_settings.whitespacetrimcount > 0) and (had_newline or first_multiline) then
                                    begin
                                      trimcount:=current_settings.whitespacetrimcount;
                                      while (c in [#9,#11,#32]) and (trimcount > 0) do
@@ -5313,6 +5315,7 @@ type
                                          dec(trimcount);
                                        end;
                                      had_newline:=false;
+                                     first_multiline:=false;
                                      goto quote_label;
                                    end;
                                #10,#13 :
