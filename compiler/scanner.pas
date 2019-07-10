@@ -3115,7 +3115,7 @@ type
              ControllerType:=ct_none;
 {$POP}
             lineendingtype:=tlineendingtype(tokenreadenum(sizeof(tlineendingtype)));
-            whitespacetrimcount:=tokenreadlongword;
+            whitespacetrimcount:=tokenreadword;
             endpos:=replaytokenbuf.pos;
             if endpos-startpos<>expected_size then
              Comment(V_Error,'Wrong size of Settings read-in');
@@ -3195,7 +3195,7 @@ type
               tokenwriteenum(controllertype,sizeof(tcontrollertype));
 {$POP}
            tokenwriteenum(lineendingtype,sizeof(tlineendingtype));
-           tokenwritelongword(whitespacetrimcount);
+           tokenwriteword(whitespacetrimcount);
            endpos:=recordtokenbuf.pos;
            size:=endpos-startpos;
            recordtokenbuf.seek(sizepos);
@@ -4743,7 +4743,7 @@ type
         asciinr : string[33];
         iswidestring : boolean;
         in_multiline_string,had_newline,first_multiline: boolean;
-        trimcount: longword;
+        trimcount: word;
       label
         quote_label, exit_label;
       begin
@@ -5305,11 +5305,11 @@ type
                              case c of
                                #26 :
                                  end_of_file;
-                               #9,#11,#32 :
-                                 if (current_settings.whitespacetrimcount > 0) and (had_newline or first_multiline) then
+                               #32,#9,#11 :
+                                 if (had_newline or first_multiline) and (current_settings.whitespacetrimcount > 0) then
                                    begin
                                      trimcount:=current_settings.whitespacetrimcount;
-                                     while (c in [#9,#11,#32]) and (trimcount > 0) do
+                                     while (c in [#32,#9,#11]) and (trimcount > 0) do
                                        begin
                                          readchar;
                                          dec(trimcount);
@@ -5410,7 +5410,7 @@ type
                              end
                            else if iswidestring then
                              begin
-                               if c in [#13,#10] then
+                               if c in [#10,#13] then
                                  begin
                                    if current_settings.sourcecodepage=CP_UTF8 then
                                      begin
@@ -5452,7 +5452,7 @@ type
                                if len>=length(cstringpattern) then
                                  setlength(cstringpattern,length(cstringpattern)+256);
                                 inc(len);
-                                if c in [#13,#10] then
+                                if c in [#10,#13] then
                                   begin
                                     case current_settings.lineendingtype of
                                       le_cr: cstringpattern[len]:=#13;

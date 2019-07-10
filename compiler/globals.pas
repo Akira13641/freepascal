@@ -186,7 +186,7 @@ interface
          
          lineendingtype : tlineendingtype;
 
-         whitespacetrimcount : longword;
+         whitespacetrimcount : word;
        end;
 
     const

@@ -433,7 +433,7 @@ scan_w_setpesubsysversion_not_support=02104_W_SETPESUBSYSVERSION is not supporte
 % The \var{\{\$SETPESUBSYSVERSION\}} directive is not supported by the target OS.
 scan_n_changecputype=02105_N_Changed CPU type to be consistent with specified controller
 scan_e_unknown_lineending_type=02106_E_Unknown line ending type specified. Valid options are CR, CRLF, LF, PLATFORM, or RAW.
-% The line ending type that was specified is not supported.
+% The line ending type that was specified is not one of CR, CRLF, LF, PLATFORM, or RAW.
 % \end{description}
 #
 # Parser
