@@ -4745,7 +4745,7 @@ type
         in_multiline_string, had_newline: boolean;
         trimcount: longword;
       label
-        exit_label;
+        quote_label, exit_label;
       begin
         had_newline:=false;
         flushpendingswitchesstate;
@@ -5299,38 +5299,40 @@ type
                          in_multiline_string:=(c='`');
                          repeat
                            readchar;
-                           case c of
-                             #26 :
-                               end_of_file;
-                             #9,#11,#32 :
-                               if (current_settings.whitespacetrimcount > 0) and had_newline then
-                                 begin
-                                   trimcount:=current_settings.whitespacetrimcount;
-                                   while (c in [#9,#11,#32]) and (trimcount > 0) do
-                                     begin
-                                       readchar;
-                                       dec(trimcount);
-                                     end;
-                                   had_newline:=false;
-                                 end;
-                             #10,#13 :
-                               if not in_multiline_string then
-                                 Message(scan_f_string_exceeds_line);
-                             '''' :
-                               if not in_multiline_string then
-                                 begin
-                                   readchar;
-                                   if c<>'''' then
-                                    break;
-                                 end;
-                             '`' :
-                               if in_multiline_string then
-                                 begin
-                                   readchar;
-                                   if c<>'`' then
-                                    break;
-                                 end;
-                           end;
+                           quote_label:
+                             case c of
+                               #26 :
+                                 end_of_file;
+                               #9,#11,#32 :
+                                 if (current_settings.whitespacetrimcount > 0) and had_newline then
+                                   begin
+                                     trimcount:=current_settings.whitespacetrimcount;
+                                     while (c in [#9,#11,#32]) and (trimcount > 0) do
+                                       begin
+                                         readchar;
+                                         dec(trimcount);
+                                       end;
+                                     had_newline:=false;
+                                     goto quote_label;
+                                   end;
+                               #10,#13 :
+                                 if not in_multiline_string then
+                                   Message(scan_f_string_exceeds_line);
+                               '''' :
+                                 if not in_multiline_string then
+                                   begin
+                                     readchar;
+                                     if c<>'''' then
+                                      break;
+                                   end;
+                               '`' :
+                                 if in_multiline_string then
+                                   begin
+                                     readchar;
+                                     if c<>'`' then
+                                      break;
+                                   end;
+                             end;
                            { interpret as utf-8 string? }
                            if (ord(c)>=$80) and (current_settings.sourcecodepage=CP_UTF8) then
                              begin
