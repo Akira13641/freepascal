@@ -434,6 +434,8 @@ scan_w_setpesubsysversion_not_support=02104_W_SETPESUBSYSVERSION is not supporte
 scan_n_changecputype=02105_N_Changed CPU type to be consistent with specified controller
 scan_e_unknown_lineending_type=02106_E_Unknown line ending type specified. Valid options are CR, CRLF, LF, PLATFORM, or RAW.
 % The line ending type that was specified is not one of CR, CRLF, LF, PLATFORM, or RAW.
+scan_e_trimcount_too_large=02107_E_The value of MULTILINESTRINGTRIMLEFT cannot exceed 65535.
+% MULTILINESTRINGTRIMLEFT is stored in a word field, and thus is capped at 65535.
 % \end{description}
 #
 # Parser

@@ -1005,29 +1005,35 @@ unit scandir;
       
     procedure dir_multilinestringlineending;
       var
-        hs : string;
+        s : string;
       begin
         current_scanner.skipspace;
-        hs:=current_scanner.readid;
-        if (hs='CR') then
+        s:=current_scanner.readid;
+        if (s='CR') then
           current_settings.lineendingtype:=le_cr
-        else if (hs='CRLF') then
+        else if (s='CRLF') then
           current_settings.lineendingtype:=le_crlf
-        else if (hs='LF') then
+        else if (s='LF') then
           current_settings.lineendingtype:=le_lf
-        else if (hs='PLATFORM') then
+        else if (s='PLATFORM') then
           current_settings.lineendingtype:=le_platform
-        else if (hs='RAW') then
+        else if (s='RAW') then
           current_settings.lineendingtype:=le_raw
         else
           Message(scan_e_unknown_lineending_type);
       end;
 
     procedure dir_multilinestringtrimleft;
+      var
+        count : longword; 
       begin
         current_scanner.skipspace;
         current_scanner.readnumber;
-        val(pattern, current_settings.whitespacetrimcount);
+        val(pattern, count);
+        if count > 65535 then
+          Message(scan_e_trimcount_too_large)
+        else
+          current_settings.whitespacetrimcount:=count;
       end;
 
     procedure dir_namespace;
