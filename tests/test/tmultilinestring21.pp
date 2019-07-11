@@ -1,4 +1,4 @@
-{ %FAIL% }
+{ %FAIL }
 
 program tmultilinestring21;
 

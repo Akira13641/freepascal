@@ -1,5 +1,6 @@
 program tmultilinestring6;
 
+{$CodePage UTF8}
 {$modeswitch MultiLineStrings}
 {$MultiLineStringLineEnding CR}
 
