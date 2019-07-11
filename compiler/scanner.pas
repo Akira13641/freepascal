@@ -4250,7 +4250,7 @@ type
     function tscannerfile.readquotedstring:string;
       var
         i : longint;
-        msgwritten, in_multiline_string : boolean;
+        msgwritten,in_multiline_string : boolean;
       begin
         i:=0;
         msgwritten:=false;
@@ -4411,7 +4411,7 @@ type
     procedure tscannerfile.skipuntildirective;
       var
         found : longint;
-        next_char_loaded, in_multiline_string : boolean;
+        next_char_loaded,in_multiline_string : boolean;
       begin
          found:=0;
          next_char_loaded:=false;
@@ -5295,7 +5295,7 @@ type
                              cstringpattern[len]:=chr(m);
                            end;
                        end;
-                     '''', '`' :
+                     '''','`' :
                        begin
                          in_multiline_string:=(c='`');
                          first_multiline:=in_multiline_string;
@@ -5415,28 +5415,28 @@ type
                                    if current_settings.sourcecodepage=CP_UTF8 then
                                      begin
                                        case current_settings.lineendingtype of
-                                         le_cr: concatwidestringchar(patternw,ord(#13));
-                                         le_crlf:
+                                         le_cr : concatwidestringchar(patternw,ord(#13));
+                                         le_crlf :
                                            begin
                                              concatwidestringchar(patternw,ord(#13));
                                              concatwidestringchar(patternw,ord(#10));
                                            end;
-                                         le_lf: concatwidestringchar(patternw,ord(#10));
-                                         le_platform: buildplatformnewlineutf8;
-                                         le_raw: concatwidestringchar(patternw,ord(c));
+                                         le_lf : concatwidestringchar(patternw,ord(#10));
+                                         le_platform : buildplatformnewlineutf8;
+                                         le_raw : concatwidestringchar(patternw,ord(c));
                                        end;
                                      end
                                    else
                                      case current_settings.lineendingtype of
-                                       le_cr: concatwidestringchar(patternw,asciichar2unicode(#13));
-                                       le_crlf:
+                                       le_cr : concatwidestringchar(patternw,asciichar2unicode(#13));
+                                       le_crlf :
                                          begin
                                            concatwidestringchar(patternw,asciichar2unicode(#13));
                                            concatwidestringchar(patternw,asciichar2unicode(#10));
                                          end;
-                                       le_lf: concatwidestringchar(patternw,asciichar2unicode(#10));
-                                       le_platform: buildplatformnewlineunicode;
-                                       le_raw: concatwidestringchar(patternw,asciichar2unicode(c));
+                                       le_lf : concatwidestringchar(patternw,asciichar2unicode(#10));
+                                       le_platform : buildplatformnewlineunicode;
+                                       le_raw : concatwidestringchar(patternw,asciichar2unicode(c));
                                      end;
                                    inc(line_no);
                                    had_newline:=true;
@@ -5455,8 +5455,8 @@ type
                                 if c in [#10,#13] then
                                   begin
                                     case current_settings.lineendingtype of
-                                      le_cr: cstringpattern[len]:=#13;
-                                      le_crlf:
+                                      le_cr : cstringpattern[len]:=#13;
+                                      le_crlf :
                                         begin
                                           cstringpattern[len]:=#13;
                                           if len>=length(cstringpattern) then
@@ -5464,9 +5464,9 @@ type
                                           inc(len);
                                           cstringpattern[len]:=#10;
                                         end;
-                                      le_lf: cstringpattern[len]:=#10;
-                                      le_platform: buildplatformnewlineascii(len);
-                                      le_raw: cstringpattern[len]:=c;
+                                      le_lf : cstringpattern[len]:=#10;
+                                      le_platform : buildplatformnewlineascii(len);
+                                      le_raw : cstringpattern[len]:=c;
                                     end;
                                     inc(line_no);
                                     had_newline:=true;
