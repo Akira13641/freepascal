@@ -5642,7 +5642,7 @@ exit_label:
                current_scanner.preproc_pattern:=pattern;
                readpreproc:=optoken;
              end;
-           '''', '`' :
+           '''','`' :
              if not ((c='`') and (not (m_multiline_strings in current_settings.modeswitches))) then
                begin
                  readquotedstring;
