@@ -1030,7 +1030,7 @@ unit scandir;
         current_scanner.skipspace;
         current_scanner.readnumber;
         val(pattern, count);
-        if count > 65535 then
+        if count>65535 then
           Message(scan_e_trimcount_too_large)
         else
           current_settings.whitespacetrimcount:=count;
