@@ -4745,7 +4745,7 @@ type
         in_multiline_string,had_newline,first_multiline: boolean;
         trimcount: word;
       label
-        quote_label, exit_label;
+        quote_label,exit_label;
       begin
         had_newline:=false;
         first_multiline:=false;
