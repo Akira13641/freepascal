@@ -436,6 +436,8 @@ scan_e_unknown_lineending_type=02106_E_Unknown line ending type specified. Valid
 % The line ending type that was specified is not one of CR, CRLF, LF, PLATFORM, or RAW.
 scan_e_trimcount_out_of_range=02107_E_The value of MULTILINESTRINGTRIMLEFT cannot be less than 0 or greater than 65535.
 % MULTILINESTRINGTRIMLEFT is stored in a "word" field, and thus is restricted to the range 0..65535.
+scan_e_illegal_directive=02108_E_Illegal compiler directive "$1"
+% You have specified a compiler directive that cannot (for one of several possible reasons) currently be used.
 % \end{description}
 #
 # Parser
