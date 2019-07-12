@@ -1007,6 +1007,8 @@ unit scandir;
       var
         s : string;
       begin
+        if not (m_multiline_strings in current_settings.modeswitches) then
+          Message1(scan_e_illegal_directive,'MULTILINESTRINGLINEENDING');
         current_scanner.skipspace;
         s:=current_scanner.readid;
         if (s='CR') then
@@ -1027,6 +1029,8 @@ unit scandir;
       var
         count : longint;
       begin
+        if not (m_multiline_strings in current_settings.modeswitches) then
+          Message1(scan_e_illegal_directive,'MULTILINESTRINGTRIMLEFT');
         current_scanner.skipspace;
         count:=current_scanner.readval;
         if (count<0) or (count>65535) then
