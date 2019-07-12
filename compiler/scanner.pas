@@ -5336,6 +5336,7 @@ type
                                       break;
                                    end;
                              end;
+                           first_multiline:=false;
                            { interpret as utf-8 string? }
                            if (ord(c)>=$80) and (current_settings.sourcecodepage=CP_UTF8) then
                              begin
