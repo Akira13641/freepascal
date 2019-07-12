@@ -56,7 +56,9 @@ interface
           in the same unit as the current one }
         function ref_rtti(def:tdef;rt:trttitype;indirect:boolean;suffix:tsymstr):tasmsymbol;
         procedure write_rtti_name(tcb: ttai_typedconstbuilder; def: tdef);
+        procedure write_common_rtti_data(tcb:ttai_typedconstbuilder;def:tdef;rt:trttitype);
         procedure write_rtti_data(tcb: ttai_typedconstbuilder; def:tdef; rt: trttitype);
+        procedure write_attribute_data(tcb: ttai_typedconstbuilder;attr_list:trtti_attribute_list);
         procedure write_child_rtti_data(def:tdef;rt:trttitype);
         procedure write_rtti_reference(tcb: ttai_typedconstbuilder; def: tdef; rt: trttitype);
         procedure write_methods(tcb:ttai_typedconstbuilder;st:tsymtable;visibilities:tvisibilities);
@@ -86,6 +88,7 @@ implementation
     uses
        cutils,
        globals,verbose,systems,
+       node,ncal,ncon,
        fmodule, procinfo,
        symtable,
        aasmtai,aasmdata,
@@ -300,6 +303,7 @@ implementation
           InternalError(201012211);
         tcb.emit_tai(Tai_const.Create_8bit(typekind),u8inttype);
         tcb.emit_shortstring_const(name);
+
         tcb.end_anonymous_record;
       end;
 
@@ -563,6 +567,28 @@ implementation
          else
            tcb.emit_shortstring_const('');
       end;
+
+
+    procedure TRTTIWriter.write_common_rtti_data(tcb:ttai_typedconstbuilder;def:tdef;rt:trttitype);
+      begin
+        { important: we need to align this the same way as the type data itself
+          is aligned }
+       tcb.begin_anonymous_record(
+          internaltypeprefixName[itp_rtti_common_data],
+          defaultpacking,reqalign,
+          targetinfos[target_info.system]^.alignment.recordalignmin,
+          targetinfos[target_info.system]^.alignment.maxCrecordalign);
+        if rt<>fullrtti then
+          begin
+            write_attribute_data(tcb,nil);
+          end
+        else
+          begin
+            write_attribute_data(tcb,tstoreddef(def).rtti_attribute_list);
+          end;
+        tcb.end_anonymous_record;
+      end;
+
 
     { writes a 32-bit count followed by array of field infos for given symtable }
     procedure TRTTIWriter.fields_write_rtti_data(tcb: ttai_typedconstbuilder; def: tabstractrecorddef; rt: trttitype);
@@ -897,7 +923,13 @@ implementation
                   internalerror(200512201);
                 tcb.emit_ord_const(propnameitem.propindex,u16inttype);
                 tcb.emit_ord_const(proctypesinfo,u8inttype);
+
+                { write reference to attribute table }
+                write_attribute_data(tcb,tpropertysym(sym).rtti_attribute_list);
+
+                { Write property name }
                 tcb.emit_shortstring_const(tpropertysym(sym).realname);
+
                 tcb.end_anonymous_record;
              end;
           end;
@@ -911,11 +943,13 @@ implementation
         begin
           tcb.emit_ord_const(tkUnknown,u8inttype);
           write_rtti_name(tcb,def);
+          write_common_rtti_data(tcb,def,rt);
         end;
 
         procedure variantdef_rtti(def:tvariantdef);
         begin
           write_header(tcb,def,tkVariant);
+          write_common_rtti_data(tcb,def,rt);
         end;
 
         procedure stringdef_rtti(def:tstringdef);
@@ -924,6 +958,7 @@ implementation
             st_ansistring:
               begin
                 write_header(tcb,def,tkAString);
+                write_common_rtti_data(tcb,def,rt);
                 { align }
                 tcb.begin_anonymous_record(
                   internaltypeprefixName[itp_rtti_ansistr],
@@ -935,17 +970,27 @@ implementation
               end;
 
             st_widestring:
-              write_header(tcb,def,tkWString);
+              begin
+                write_header(tcb,def,tkWString);
+                write_common_rtti_data(tcb,def,rt);
+              end;
 
             st_unicodestring:
-              write_header(tcb,def,tkUString);
+              begin
+                write_header(tcb,def,tkUString);
+                write_common_rtti_data(tcb,def,rt);
+              end;
 
             st_longstring:
-              write_header(tcb,def,tkLString);
+              begin
+                write_common_rtti_data(tcb,def,rt);
+                write_header(tcb,def,tkLString);
+              end;
 
             st_shortstring:
               begin
                  write_header(tcb,def,tkSString);
+                 write_common_rtti_data(tcb,def,rt);
                  tcb.emit_ord_const(def.len,u8inttype);
               end;
           end;
@@ -957,6 +1002,7 @@ implementation
            hp : tenumsym;
         begin
           write_header(tcb,def,tkEnumeration);
+          write_common_rtti_data(tcb,def,rt);
           { align; the named fields are so that we can let the compiler
             calculate the string offsets later on }
           tcb.next_field_name:='size_start_rec';
@@ -1032,6 +1078,7 @@ implementation
               deftrans: byte;
           begin
             write_header(tcb,def,typekind);
+            write_common_rtti_data(tcb,def,rt);
             deftrans:=trans[def.ordtype];
             case deftrans of
               otUQWord,
@@ -1123,6 +1170,7 @@ implementation
             scurrency:
               begin
                 write_header(tcb,def,tkFloat);
+                write_common_rtti_data(tcb,def,rt);
                 tcb.begin_anonymous_record(
                   internaltypeprefixName[itp_1byte],
                   defaultpacking,reqalign,
@@ -1144,6 +1192,7 @@ implementation
              (ftSingle,ftDouble,ftExtended,ftExtended,ftComp,ftCurr,ftFloat128);
         begin
            write_header(tcb,def,tkFloat);
+           write_common_rtti_data(tcb,def,rt);
            tcb.begin_anonymous_record(
              internaltypeprefixName[itp_1byte],
              defaultpacking,reqalign,
@@ -1157,6 +1206,7 @@ implementation
         procedure setdef_rtti(def:tsetdef);
         begin
            write_header(tcb,def,tkSet);
+           write_common_rtti_data(tcb,def,rt);
            tcb.begin_anonymous_record(
              internaltypeprefixName[itp_rtti_set_outer],
              defaultpacking,reqalign,
@@ -1196,6 +1246,7 @@ implementation
            else
              tcb.emit_ord_const(tkArray,u8inttype);
            write_rtti_name(tcb,def);
+           write_common_rtti_data(tcb,def,rt);
 
            if not(ado_IsDynamicArray in def.arrayoptions) then
              begin
@@ -1268,6 +1319,7 @@ implementation
         procedure classrefdef_rtti(def:tclassrefdef);
         begin
           write_header(tcb,def,tkClassRef);
+          write_common_rtti_data(tcb,def,rt);
           tcb.begin_anonymous_record(
             internaltypeprefixName[itp_rtti_ref],
             defaultpacking,reqalign,
@@ -1280,6 +1332,7 @@ implementation
         procedure pointerdef_rtti(def:tpointerdef);
         begin
           write_header(tcb,def,tkPointer);
+          write_common_rtti_data(tcb,def,rt);
           tcb.begin_anonymous_record(
             internaltypeprefixName[itp_rtti_ref],
             defaultpacking,reqalign,
@@ -1337,6 +1390,7 @@ implementation
 
         begin
            write_header(tcb,def,tkRecord);
+           write_common_rtti_data(tcb,def,rt);
            { need extra reqalign record, because otherwise the u32 int will
              only be aligned to 4 even on 64 bit target (while the rtti code
              in typinfo expects alignments to sizeof(pointer)) }
@@ -1420,6 +1474,7 @@ implementation
             begin
                { write method id and name }
                write_header(tcb,def,tkMethod);
+               write_common_rtti_data(tcb,def,rt);
                tcb.begin_anonymous_record('',defaultpacking,reqalign,
                  targetinfos[target_info.system]^.alignment.recordalignmin,
                  targetinfos[target_info.system]^.alignment.maxCrecordalign);
@@ -1462,6 +1517,7 @@ implementation
           else
             begin
               write_header(tcb,def,tkProcvar);
+              write_common_rtti_data(tcb,def,rt);
               tcb.begin_anonymous_record('',defaultpacking,reqalign,
                 targetinfos[target_info.system]^.alignment.recordalignmin,
                 targetinfos[target_info.system]^.alignment.maxCrecordalign);
@@ -1644,6 +1700,8 @@ implementation
            { generate the name }
            tcb.emit_shortstring_const(def.objrealname^);
 
+           write_common_rtti_data(tcb,def,rt);
+
            tcb.begin_anonymous_record('',defaultpacking,reqalign,
              targetinfos[target_info.system]^.alignment.recordalignmin,
              targetinfos[target_info.system]^.alignment.maxCrecordalign);
@@ -1714,6 +1772,124 @@ implementation
             unknown_rtti(tstoreddef(def));
         end;
       end;
+
+  procedure TRTTIWriter.write_attribute_data(tcb:ttai_typedconstbuilder;attr_list:trtti_attribute_list);
+
+    procedure write_args(tbltcb:ttai_typedconstbuilder;attr:trtti_attribute);
+      var
+        argtcb : ttai_typedconstbuilder;
+        arglab : tasmlabel;
+        argdef : tdef;
+        i : sizeint;
+        arglen : word;
+      begin
+        if length(attr.paras)=0 then
+          begin
+            tbltcb.emit_tai(tai_const.Create_16bit(0),u16inttype);
+            tbltcb.emit_tai(tai_const.Create_nil_dataptr,voidpointertype);
+          end
+        else
+          begin
+            current_asmdata.getglobaldatalabel(arglab);
+
+            argtcb:=ctai_typedconstbuilder.create([tcalo_is_lab,tcalo_make_dead_strippable,tcalo_apply_constalign]);
+
+            argtcb.begin_anonymous_record('',defaultpacking,min(reqalign,SizeOf(PInt)),
+              targetinfos[target_info.system]^.alignment.recordalignmin,
+              targetinfos[target_info.system]^.alignment.maxCrecordalign);
+
+            arglen:=0;
+            for i:=0 to High(attr.paras) do
+              begin
+                case attr.paras[i].nodetype of
+                  niln,
+                  ordconstn,
+                  realconstn,
+                  stringconstn,
+                  pointerconstn,
+                  guidconstn:
+                    inc(arglen,tconstnode(attr.paras[i]).emit_data(argtcb));
+                  setconstn:
+                    inc(arglen,tsetconstnode(attr.paras[i]).emit_data(argtcb));
+                  else
+                    internalerror(2019070803);
+                end;
+              end;
+
+            argdef:=argtcb.end_anonymous_record;
+
+            current_asmdata.asmlists[al_rtti].concatlist(
+              argtcb.get_final_asmlist(arglab,argdef,sec_rodata,arglab.name,const_align(sizeof(pint)))
+            );
+
+            argtcb.free;
+
+            { write argument size and the reference to the argument entry }
+            tbltcb.emit_ord_const(arglen,u16inttype);
+            tbltcb.emit_tai(Tai_const.Create_sym(arglab),voidpointertype);
+          end;
+      end;
+
+    var
+      count,i,len: word;
+      attr : trtti_attribute;
+      tbltcb : ttai_typedconstbuilder;
+      tbllab : tasmlabel;
+      tbldef : tdef;
+    begin
+      if assigned(attr_list) then
+        count:=attr_list.get_attribute_count
+      else
+        count:=0;
+
+      if count=0 then
+        begin
+          { write a Nil reference }
+          tcb.emit_tai(Tai_const.Create_nil_dataptr,voidpointertype);
+          exit;
+        end;
+
+      { first write the attribute list as a separate table }
+      current_asmdata.getglobaldatalabel(tbllab);
+
+      tbltcb:=ctai_typedconstbuilder.create([tcalo_is_lab,tcalo_make_dead_strippable,tcalo_apply_constalign]);
+
+      tbltcb.begin_anonymous_record(
+        internaltypeprefixName[itp_rtti_attr_list]+tostr(count),
+        defaultpacking,min(reqalign,SizeOf(PInt)),
+        targetinfos[target_info.system]^.alignment.recordalignmin,
+        targetinfos[target_info.system]^.alignment.maxCrecordalign);
+      tbltcb.emit_ord_const(count,u16inttype);
+      for i:=0 to count-1 do
+        begin
+          tbltcb.begin_anonymous_record(internaltypeprefixName[itp_rtti_attr_entry],defaultpacking,min(reqalign,SizeOf(PInt)),
+            targetinfos[target_info.system]^.alignment.recordalignmin,
+            targetinfos[target_info.system]^.alignment.maxCrecordalign);
+          attr:=trtti_attribute(attr_list.rtti_attributes[i]);
+
+          write_rtti_reference(tbltcb,ttypesym(attr.typesym).typedef,fullrtti);
+
+          tbltcb.emit_procdef_const(tprocdef(tcallnode(attr.constructorcall).procdefinition));
+
+          if not assigned(attr.constructorpd) then
+            internalerror(2019071004);
+          tbltcb.emit_procdef_const(tprocdef(attr.constructorpd));
+
+          write_args(tbltcb,attr);
+
+          tbltcb.end_anonymous_record;
+        end;
+      tbldef:=tbltcb.end_anonymous_record;
+
+      current_asmdata.asmlists[al_rtti].concatlist(
+        tbltcb.get_final_asmlist(tbllab,tbldef,sec_rodata,tbllab.name,const_align(sizeof(pint)))
+      );
+
+      tbltcb.free;
+
+      { write the reference to the attribute table }
+      tcb.emit_tai(Tai_const.Create_sym(tbllab),voidpointertype);
+    end;
 
 
     function enumsym_compare_name(item1, item2: pointer): Integer;
@@ -2097,6 +2273,7 @@ implementation
             defaultpacking:=1;
           end;
       end;
+
 
 end.
 

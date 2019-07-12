@@ -442,7 +442,7 @@ scan_e_illegal_directive=02108_E_Illegal compiler directive "$1"
 #
 # Parser
 #
-# 03348 is the last used one
+# 03350 is the last used one
 #
 % \section{Parser messages}
 % This section lists all parser messages. The parser takes care of the
@@ -1589,6 +1589,8 @@ parser_w_operator_overloaded_hidden_3=03347_W_Operator overload hidden by intern
 parser_e_threadvar_must_be_class=03348_E_Thread variables inside classes or records must be class variables
 % A \var{threadvar} section inside a class or record was started without it being prefixed by \var{class}.
 parser_e_only_static_members_via_object_type=03349_E_Only static methods and static variables can be referenced through an object type
+parser_e_unbound_attribute=03350_E_Unbound custom attribute: "$1".
+% A custom attribute is defined, but there is no identifier to bind it to.
 % This error occurs in a situation like the following:
 % \begin{verbatim}
 % Type

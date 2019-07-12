@@ -376,7 +376,7 @@ implementation
            not_a_type:=false;
          { handle unit specification like System.Writeln }
          if allowunitsym then
-           is_unit_specific:=try_consume_unitsym(srsym,srsymtable,t,true,true,is_specialize,s)
+           is_unit_specific:=try_consume_unitsym(srsym,srsymtable,t,[cuf_consume_id,cuf_allow_specialize],is_specialize,s)
          else
            begin
              t:=_ID;
@@ -677,6 +677,7 @@ implementation
         hadgeneric,
         fields_allowed, is_classdef, classfields, threadvarfields: boolean;
         vdoptions: tvar_dec_options;
+        rtti_attrs_def: trtti_attribute_list;
       begin
         { empty record declaration ? }
         if (token=_SEMICOLON) then
@@ -697,6 +698,7 @@ implementation
         classfields:=false;
         threadvarfields:=false;
         member_blocktype:=bt_general;
+        rtti_attrs_def := nil;
         repeat
           case token of
             _TYPE :
@@ -857,7 +859,7 @@ implementation
                               end;
                           end
                         else if member_blocktype=bt_type then
-                          types_dec(true,hadgeneric)
+                          types_dec(true,hadgeneric, rtti_attrs_def)
                         else if member_blocktype=bt_const then
                           consts_dec(true,true,hadgeneric)
                         else
@@ -869,7 +871,7 @@ implementation
               begin
                 if IsAnonOrLocal then
                   Message(parser_e_no_properties_in_local_anonymous_records);
-                struct_property_dec(is_classdef);
+                struct_property_dec(is_classdef, rtti_attrs_def);
                 fields_allowed:=false;
                 is_classdef:=false;
               end;

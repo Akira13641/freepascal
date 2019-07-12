@@ -227,6 +227,7 @@ unit TypInfo;
       end;
 
 {$PACKRECORDS 1}
+
       TTypeInfo = record
          Kind : TTypeKind;
          Name : ShortString;
@@ -247,6 +248,37 @@ unit TypInfo;
 {$endif}
 
 {$PACKRECORDS C}
+
+{$if not defined(VER3_0) and not defined(VER3_2)}
+{$define PROVIDE_ATTR_TABLE}
+{$endif}
+
+      TAttributeProc = function : TCustomAttribute;
+
+      TAttributeEntry =
+      {$ifndef FPC_REQUIRES_PROPER_ALIGNMENT}
+      packed
+      {$endif}
+      record
+        AttrType: PPTypeInfo;
+        AttrCtor: CodePointer;
+        AttrProc: TAttributeProc;
+        ArgLen: Word;
+        ArgData: Pointer;
+      end;
+
+      TAttributeEntryList = array[0..$ffff] of TAttributeEntry;
+
+      TAttributeTable =
+      {$ifndef FPC_REQUIRES_PROPER_ALIGNMENT}
+      packed
+      {$endif}
+      record
+        AttributeCount: word;
+        AttributesList: TAttributeEntryList;
+      end;
+      PAttributeTable = ^TAttributeTable;
+
       // members of TTypeData
       TArrayTypeData =
 {$ifndef FPC_REQUIRES_PROPER_ALIGNMENT}
@@ -435,6 +467,9 @@ unit TypInfo;
       packed
       {$endif FPC_REQUIRES_PROPER_ALIGNMENT}
       record
+        {$ifdef PROVIDE_ATTR_TABLE}
+        AttributeTable : PAttributeTable;
+        {$endif}
         Terminator: Pointer;
         Size: Integer;
 {$ifndef VER3_0}
@@ -456,6 +491,9 @@ unit TypInfo;
         function GetPropertyTable: PPropData; inline;
         function GetMethodTable: PIntfMethodTable; inline;
       public
+        {$ifdef PROVIDE_ATTR_TABLE}
+        AttributeTable : PAttributeTable;
+        {$endif}
         Parent: PPTypeInfo;
         Flags: TIntfFlagsBase;
         GUID: TGUID;
@@ -480,6 +518,9 @@ unit TypInfo;
         function GetPropertyTable: PPropData; inline;
         function GetMethodTable: PIntfMethodTable; inline;
       public
+        {$ifdef PROVIDE_ATTR_TABLE}
+        AttributeTable : PAttributeTable;
+        {$endif}
         Parent: PPTypeInfo;
         Flags : TIntfFlagsBase;
         IID: TGUID;
@@ -503,6 +544,9 @@ unit TypInfo;
         function GetUnitName: ShortString; inline;
         function GetPropertyTable: PPropData; inline;
       public
+        {$ifdef PROVIDE_ATTR_TABLE}
+        AttributeTable : PAttributeTable;
+        {$endif}
         ClassType : TClass;
         Parent : PPTypeInfo;
         PropCount : SmallInt;
@@ -562,6 +606,9 @@ unit TypInfo;
         { tkPointer }
         property RefType: PTypeInfo read GetRefType;
       public
+         {$ifdef PROVIDE_ATTR_TABLE}
+         AttributeTable : PAttributeTable;
+         {$endif}
          case TTypeKind of
             tkUnKnown,tkLString,tkWString,tkVariant,tkUString:
               ();
@@ -608,7 +655,7 @@ unit TypInfo;
               (ClassType : TClass;
                ParentInfoRef : TypeInfoPtr;
                PropCount : SmallInt;
-               UnitName : ShortString
+               UnitName : ShortString;
                // here the properties follow as array of TPropInfo
               );
             tkRecord:
@@ -726,6 +773,9 @@ unit TypInfo;
         //     6 : true, constant index property
         PropProcs : Byte;
 
+        {$ifdef PROVIDE_ATTR_TABLE}
+        AttributeTable : PAttributeTable;
+        {$endif}
         Name : ShortString;
         property PropType: PTypeInfo read GetPropType;
         property Tail: Pointer read GetTail;
@@ -873,6 +923,13 @@ function GetDynArrayProp(Instance: TObject; PropInfo: PPropInfo): Pointer;
 procedure SetDynArrayProp(Instance: TObject; const PropName: string; const Value: Pointer);
 procedure SetDynArrayProp(Instance: TObject; PropInfo: PPropInfo; const Value: Pointer);
 
+// Extended RTTI
+function GetAttributeTable(TypeInfo: PTypeInfo): PAttributeTable;
+
+function GetPropAttribute(PropInfo: PPropInfo; AttributeNr: Word): TCustomAttribute; inline;
+
+function GetAttribute(AttributeTable: PAttributeTable; AttributeNr: Word): TCustomAttribute;
+
 // Auxiliary routines, which may be useful
 Function GetEnumName(TypeInfo : PTypeInfo;Value : Integer) : string;
 Function GetEnumValue(TypeInfo : PTypeInfo;const Name : string) : Integer;
@@ -950,6 +1007,45 @@ begin
 {$endif}
 end;
 
+function GetAttributeTable(TypeInfo: PTypeInfo): PAttributeTable;
+{$ifdef PROVIDE_ATTR_TABLE}
+var
+  TD: PTypeData;
+begin
+  TD := GetTypeData(TypeInfo);
+  Result:=TD^.AttributeTable;
+{$else}
+begin
+  Result:=Nil;
+{$endif}
+end;
+
+function GetPropData(TypeInfo : PTypeInfo; TypeData: PTypeData) : PPropData; inline;
+var
+  p: PtrUInt;
+begin
+  p := PtrUInt(@TypeData^.UnitName) + SizeOf(TypeData^.UnitName[0]) + Length(TypeData^.UnitName);
+  Result := PPropData(aligntoptr(Pointer(p)));
+end;
+
+function GetAttribute(AttributeTable: PAttributeTable; AttributeNr: Word): TCustomAttribute;
+begin
+  if (AttributeTable=nil) or (AttributeNr>=AttributeTable^.AttributeCount) then
+    result := nil
+  else
+    begin
+      result := AttributeTable^.AttributesList[AttributeNr].AttrProc();
+    end;
+end;
+
+function GetPropAttribute(PropInfo: PPropInfo; AttributeNr: Word): TCustomAttribute;
+begin
+{$ifdef PROVIDE_ATTR_TABLE}
+  Result := GetAttribute(PropInfo^.AttributeTable, AttributeNr);
+{$else}
+  Result := Nil;
+{$endif}
+end;
 
 Function GetEnumName(TypeInfo : PTypeInfo;Value : Integer) : string;
 
@@ -1241,7 +1337,7 @@ var
   hp : PTypeData;
   i : longint;
   p : shortstring;
-  pd : ^TPropData;
+  pd : PPropData;
 begin
   P:=PropName;  // avoid Ansi<->short conversion in a loop
   while Assigned(TypeInfo) do
@@ -1249,7 +1345,7 @@ begin
       // skip the name
       hp:=GetTypeData(Typeinfo);
       // the class info rtti the property rtti follows immediatly
-      pd:=aligntoptr(pointer(pointer(@hp^.UnitName)+Length(hp^.UnitName)+1));
+      pd := GetPropData(TypeInfo,hp);
       Result:=PPropInfo(@pd^.PropList);
       for i:=1 to pd^.PropCount do
         begin
@@ -1408,7 +1504,7 @@ begin
   repeat
     TD:=GetTypeData(TypeInfo);
     // published properties count for this object
-    TP:=aligntoptr(PPropInfo(aligntoptr((Pointer(@TD^.UnitName)+Length(TD^.UnitName)+1))));
+    TP:=PPropInfo(GetPropData(TypeInfo, TD));
     Count:=PWord(TP)^;
     // Now point TP to first propinfo record.
     Inc(Pointer(TP),SizeOF(Word));

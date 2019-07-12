@@ -978,8 +978,8 @@
 
       class function TObject.UnitName : {$ifdef FPC_HAS_FEATURE_ANSISTRINGS}ansistring{$else FPC_HAS_FEATURE_ANSISTRINGS}shortstring{$endif FPC_HAS_FEATURE_ANSISTRINGS};
         type
-          // from the typinfo unit
           TClassTypeInfo = {$ifndef FPC_REQUIRES_PROPER_ALIGNMENT}packed{$endif}record
+            Attributes: Pointer;
             ClassType: TClass;
             ParentInfo: Pointer;
             PropCount: SmallInt;

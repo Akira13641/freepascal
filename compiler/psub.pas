@@ -89,7 +89,7 @@ interface
     { reads any routine in the implementation, or a non-method routine
       declaration in the interface (depending on whether or not parse_only is
       true) }
-    procedure read_proc(isclassmethod:boolean; usefwpd: tprocdef;isgeneric:boolean);
+    procedure read_proc(isclassmethod:boolean; usefwpd: tprocdef; isgeneric:boolean);
 
     { parses only the body of a non nested routine; needs a correctly setup pd }
     procedure read_proc_body(pd:tprocdef);
@@ -325,10 +325,44 @@ implementation
           end;
       end;
 
+    procedure init_main_block_syms(block: tnode);
+      var
+         oldfilepos: tfileposinfo;
+      begin
+        { initialized variables }
+        if current_procinfo.procdef.localst.symtabletype=localsymtable then
+         begin
+           { initialization of local variables with their initial
+             values: part of function entry }
+           oldfilepos:=current_filepos;
+           current_filepos:=current_procinfo.entrypos;
+           current_procinfo.procdef.localst.SymList.ForEachCall(@initializevars,block);
+           current_filepos:=oldfilepos;
+         end
+        else if current_procinfo.procdef.localst.symtabletype=staticsymtable then
+         begin
+           { for program and unit initialization code we also need to
+             initialize the local variables used of Default() }
+           oldfilepos:=current_filepos;
+           current_filepos:=current_procinfo.entrypos;
+           current_procinfo.procdef.localst.SymList.ForEachCall(@initializedefaultvars,block);
+           current_filepos:=oldfilepos;
+         end;
+
+        if assigned(current_procinfo.procdef.parentfpstruct) then
+         begin
+           { we only do this after the code has been parsed because
+             otherwise for-loop counters moved to the struct cause
+             errors; we still do it nevertheless to prevent false
+             "unused" symbols warnings and to assist debug info
+             generation }
+           redirect_parentfpstruct_local_syms(current_procinfo.procdef);
+           { finish the parentfpstruct (add padding, ...) }
+           finish_parentfpstruct(current_procinfo.procdef);
+         end;
+      end;
 
     function block(islibrary : boolean) : tnode;
-      var
-        oldfilepos: tfileposinfo;
       begin
          { parse const,types and vars }
          read_declarations(islibrary);
@@ -388,37 +422,7 @@ implementation
             begin
                { parse routine body }
                block:=statement_block(_BEGIN);
-               { initialized variables }
-               if current_procinfo.procdef.localst.symtabletype=localsymtable then
-                 begin
-                   { initialization of local variables with their initial
-                     values: part of function entry }
-                   oldfilepos:=current_filepos;
-                   current_filepos:=current_procinfo.entrypos;
-                   current_procinfo.procdef.localst.SymList.ForEachCall(@initializevars,block);
-                   current_filepos:=oldfilepos;
-                 end
-               else if current_procinfo.procdef.localst.symtabletype=staticsymtable then
-                 begin
-                   { for program and unit initialization code we also need to
-                     initialize the local variables used of Default() }
-                   oldfilepos:=current_filepos;
-                   current_filepos:=current_procinfo.entrypos;
-                   current_procinfo.procdef.localst.SymList.ForEachCall(@initializedefaultvars,block);
-                   current_filepos:=oldfilepos;
-                 end;
-
-               if assigned(current_procinfo.procdef.parentfpstruct) then
-                 begin
-                   { we only do this after the code has been parsed because
-                     otherwise for-loop counters moved to the struct cause
-                     errors; we still do it nevertheless to prevent false
-                     "unused" symbols warnings and to assist debug info
-                     generation }
-                   redirect_parentfpstruct_local_syms(current_procinfo.procdef);
-                   { finish the parentfpstruct (add padding, ...) }
-                   finish_parentfpstruct(current_procinfo.procdef);
-                 end;
+               init_main_block_syms(block);
             end;
       end;
 
@@ -2368,7 +2372,7 @@ implementation
       end;
 
 
-    procedure read_proc(isclassmethod:boolean; usefwpd: tprocdef;isgeneric:boolean);
+    procedure read_proc(isclassmethod:boolean; usefwpd: tprocdef; isgeneric:boolean);
       {
         Parses the procedure directives, then parses the procedure body, then
         generates the code for it

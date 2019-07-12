@@ -149,6 +149,9 @@ interface
           { true, if we are parsing preprocessor expressions }
           in_preproc_comp_expr : boolean;
 
+          {last character read }
+          last_c : char;
+
           constructor Create(const fn:string; is_macro: boolean = false);
           destructor Destroy;override;
         { File buffer things }
