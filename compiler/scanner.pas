@@ -5411,7 +5411,7 @@ type
                              end
                            else if iswidestring then
                              begin
-                               if c in [#10,#13] then
+                               if in_multiline_string and (c in [#10,#13]) then
                                  begin
                                    if current_settings.sourcecodepage=CP_UTF8 then
                                      begin
@@ -5453,7 +5453,7 @@ type
                                if len>=length(cstringpattern) then
                                  setlength(cstringpattern,length(cstringpattern)+256);
                                 inc(len);
-                                if c in [#10,#13] then
+                                if in_multiline_string and (c in [#10,#13]) then
                                   begin
                                     case current_settings.lineendingtype of
                                       le_cr : cstringpattern[len]:=#13;
