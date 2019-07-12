@@ -1002,7 +1002,7 @@ unit scandir;
               Message1(scan_w_illegal_switch,s)
           end;
       end;
-      
+
     procedure dir_multilinestringlineending;
       var
         s : string;
@@ -1025,13 +1025,12 @@ unit scandir;
 
     procedure dir_multilinestringtrimleft;
       var
-        count : longword; 
+        count : longint;
       begin
         current_scanner.skipspace;
-        current_scanner.readnumber;
-        val(pattern, count);
-        if count>65535 then
-          Message(scan_e_trimcount_too_large)
+        count:=current_scanner.readval;
+        if (count<0) or (count>65535) then
+          Message(scan_e_trimcount_out_of_range)
         else
           current_settings.whitespacetrimcount:=count;
       end;
