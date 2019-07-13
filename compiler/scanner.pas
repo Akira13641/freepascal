@@ -5441,8 +5441,9 @@ type
                                        le_platform : buildplatformnewlineunicode;
                                        le_raw : concatwidestringchar(patternw,asciichar2unicode(c));
                                      end;
-                                   inc(line_no);
                                    had_newline:=true;
+                                   last_c:=c;
+                                   inc(line_no);
                                  end
                                else if not (in_multiline_string and (c in [#10,#13])) then
                                  begin
@@ -5463,7 +5464,7 @@ type
                                       le_cr : cstringpattern[len]:=#13;
                                       le_crlf :
                                         begin
-                                          cstringpattern[len]:=#13;                                          
+                                          cstringpattern[len]:=#13;
                                           inc(len);
                                           cstringpattern[len]:=#10;
                                         end;
@@ -5471,8 +5472,9 @@ type
                                       le_platform : buildplatformnewlineascii(len);
                                       le_raw : cstringpattern[len]:=c;
                                     end;
-                                    inc(line_no);
                                     had_newline:=true;
+                                    last_c:=c;
+                                    inc(line_no);
                                   end
                                 else if not (in_multiline_string and (c in [#10,#13])) then
                                   begin
@@ -5482,7 +5484,6 @@ type
                                     cstringpattern[len]:=c;
                                   end;
                              end;
-                         last_c:=c;
                          until false;
                        end;
                      '^' :
