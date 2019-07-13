@@ -3,7 +3,7 @@ program tmultilinestring20;
 {$modeswitch MultiLineStrings}
 {$MultiLineStringTrimLeft 2}
 
-uses tmultilinestringunit2;
+uses umultilinestring2;
 
 begin
   DoIt;
