@@ -1028,15 +1028,27 @@ unit scandir;
     procedure dir_multilinestringtrimleft;
       var
         count : longint;
+        s : string;
       begin
         if not (m_multiline_strings in current_settings.modeswitches) then
           Message1(scan_e_illegal_directive,'MULTILINESTRINGTRIMLEFT');
         current_scanner.skipspace;
-        count:=current_scanner.readval;
-        if (count<0) or (count>65535) then
-          Message(scan_e_trimcount_out_of_range)
+        if (c in [1..9]) then
+          begin
+            count:=current_scanner.readval;
+            if (count<0) or (count>65535) then
+              Message(scan_e_trimcount_out_of_range)
+            else
+              current_settings.whitespacetrimcount:=count;
+          end
         else
-          current_settings.whitespacetrimcount:=count;
+          begin
+            s:=current_scanner.readid;
+            if s='ALL' then
+              current_settings.whitespacetrimcount:=65535
+            else
+              current_settings.whitespacetrimcount:=0;
+          end;
       end;
 
     procedure dir_namespace;
