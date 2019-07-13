@@ -1,4 +1,4 @@
-unit tmultilinestringunit2;
+unit umultilinestring2;
 
 {$modeswitch MultiLineStrings}
 {$MultiLineStringTrimLeft 2}

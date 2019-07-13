@@ -1,4 +1,4 @@
-unit tmultilinestringunit;
+unit umultilinestring1;
 
 {$CodePage UTF8}
 {$H+}
