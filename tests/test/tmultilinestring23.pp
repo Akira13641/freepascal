@@ -38,15 +38,14 @@ type
   end;
 
 var
-  C: TMyClass;
   A: TMultiLineAttribute;
 
 begin
-  C := TMyClass.Create();
-  with TRTTIType.Create(TypeInfo(C)) do begin
-    for TCustomAttribute(A) in GetAttributes() do
+  with TRTTIType.Create(TypeInfo(TMyClass)) do begin
+    for TCustomAttribute(A) in GetAttributes() do begin
       WriteLn(A.StringValue);
+      A.Free();
+    end;
     Free();
   end;
-  C.Free();
 end.
