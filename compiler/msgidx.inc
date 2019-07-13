@@ -460,7 +460,7 @@ const
   parser_w_operator_overloaded_hidden_3=03347;
   parser_e_threadvar_must_be_class=03348;
   parser_e_only_static_members_via_object_type=03349;
-  parse_e_callthrough_varargs=03350;
+  parser_e_callthrough_varargs=03350;
   parser_e_unbound_attribute=03351;
   type_e_mismatch=04000;
   type_e_incompatible_types=04001;
