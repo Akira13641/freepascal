@@ -4263,7 +4263,7 @@ type
             if in_multiline_string and (not (m_multiline_strings in current_settings.modeswitches)) then
               begin
                 result[0]:=chr(0);
-                exit;
+                Illegal_Char(c);
               end;
             repeat
               readchar;
@@ -4699,8 +4699,6 @@ type
         else if target_info.newline=#13#10 then
           begin
             cstringpattern[len]:=#13;
-            if len>=length(cstringpattern) then
-              setlength(cstringpattern,length(cstringpattern)+256);
             inc(len);
             cstringpattern[len]:=#10;
           end
@@ -4727,8 +4725,8 @@ type
           concatwidestringchar(patternw,asciichar2unicode(#13))
         else if target_info.newline=#13#10 then
           begin
-           concatwidestringchar(patternw,asciichar2unicode(#13));
-           concatwidestringchar(patternw,asciichar2unicode(#10));
+            concatwidestringchar(patternw,asciichar2unicode(#13));
+            concatwidestringchar(patternw,asciichar2unicode(#10));
           end
         else if target_info.newline=#10 then
           concatwidestringchar(patternw,asciichar2unicode(#10));
@@ -4752,6 +4750,7 @@ type
       begin
         had_newline:=false;
         first_multiline:=false;
+        last_c:=#0;
         flushpendingswitchesstate;
 
         { record tokens? }
@@ -5414,7 +5413,7 @@ type
                              end
                            else if iswidestring then
                              begin
-                               if in_multiline_string and (c in [#10,#13]) then
+                               if in_multiline_string and (c in [#10,#13]) and (not ((c=#10) and (last_c=#13))) then
                                  begin
                                    if current_settings.sourcecodepage=CP_UTF8 then
                                      begin
@@ -5445,26 +5444,26 @@ type
                                    inc(line_no);
                                    had_newline:=true;
                                  end
-                               else
-                                 if current_settings.sourcecodepage=CP_UTF8 then
-                                   concatwidestringchar(patternw,ord(c))
-                                 else
-                                   concatwidestringchar(patternw,asciichar2unicode(c));
+                               else if not (in_multiline_string and (c in [#10,#13])) then
+                                 begin
+                                   if current_settings.sourcecodepage=CP_UTF8 then
+                                     concatwidestringchar(patternw,ord(c))
+                                   else
+                                     concatwidestringchar(patternw,asciichar2unicode(c));
+                                 end;
                              end
                            else
                              begin
-                               if len>=length(cstringpattern) then
-                                 setlength(cstringpattern,length(cstringpattern)+256);
-                                inc(len);
-                                if in_multiline_string and (c in [#10,#13]) then
+                                if in_multiline_string and (c in [#10,#13]) and (not ((c=#10) and (last_c=#13))) then
                                   begin
+                                    if len>=length(cstringpattern) then
+                                      setlength(cstringpattern,length(cstringpattern)+256);
+                                    inc(len);
                                     case current_settings.lineendingtype of
                                       le_cr : cstringpattern[len]:=#13;
                                       le_crlf :
                                         begin
-                                          cstringpattern[len]:=#13;
-                                          if len>=length(cstringpattern) then
-                                            setlength(cstringpattern,length(cstringpattern)+256);
+                                          cstringpattern[len]:=#13;                                          
                                           inc(len);
                                           cstringpattern[len]:=#10;
                                         end;
@@ -5475,9 +5474,15 @@ type
                                     inc(line_no);
                                     had_newline:=true;
                                   end
-                                else
-                                  cstringpattern[len]:=c;
+                                else if not (in_multiline_string and (c in [#10,#13])) then
+                                  begin
+                                    if len>=length(cstringpattern) then
+                                      setlength(cstringpattern,length(cstringpattern)+256);
+                                    inc(len);
+                                    cstringpattern[len]:=c;
+                                  end;
                              end;
+                         last_c:=c;
                          until false;
                        end;
                      '^' :
