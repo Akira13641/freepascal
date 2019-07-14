@@ -1,12 +1,12 @@
 program tmultilinestring24;
 
 { engkin's bug example }
- 
+
 {$mode objfpc}
 {$modeswitch MultiLineStrings}
 {$MultiLineStringTrimLeft 15}
 {$MultiLineStringLineEnding Platform}
- 
+
 var
 {$MultiLineStringLineEnding CR}
   a: array[0..3] of string = (
@@ -16,14 +16,14 @@ var
 `
 ,
 `
- 
+
 `
 ,
 `
- 
- 
+
+
 `);
- 
+
   {$MultiLineStringLineEnding CRLF}
 b: array[0..3] of string = (
 `1`
@@ -39,8 +39,8 @@ b: array[0..3] of string = (
 2
 3
 4`);
- 
-procedure Test(StrArray:array of string);
+
+procedure Test(constref StrArray:array of string);
 var
   s,sHex: string;
   c: char;
@@ -48,14 +48,14 @@ begin
   for s in StrArray do
   begin
     WriteLn('Length: ',Length(s));
-    sHex := ``;
+    sHex := '';
     for c in s do
-      sHex := sHex+`$`+hexStr(ord(c),2)+` `;
+      sHex := sHex+'$'+hexStr(ord(c),2);
     WriteLn(sHex);
   end;
   WriteLn('---------------');
 end;
- 
+
 begin
   Test(a);
   Test(b);
