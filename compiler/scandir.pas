@@ -1039,15 +1039,29 @@ unit scandir;
             if (count<0) or (count>65535) then
               Message(scan_e_trimcount_out_of_range)
             else
-              current_settings.whitespacetrimcount:=count;
+              begin
+                current_settings.whitespacetrimcount:=count;
+                current_settings.whitespacetrimauto:=false;
+              end;
           end
         else
           begin
             s:=current_scanner.readid;
             if s='ALL' then
-              current_settings.whitespacetrimcount:=65535
+              begin
+                current_settings.whitespacetrimcount:=65535;
+                current_settings.whitespacetrimauto:=false;
+              end
+            else if s='AUTO' then
+              begin
+                current_settings.whitespacetrimcount:=0;
+                current_settings.whitespacetrimauto:=true;
+              end
             else
-              current_settings.whitespacetrimcount:=0;
+              begin
+                current_settings.whitespacetrimcount:=0;
+                current_settings.whitespacetrimauto:=false;
+              end;
           end;
       end;
 

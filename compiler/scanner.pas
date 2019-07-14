@@ -149,9 +149,6 @@ interface
           { true, if we are parsing preprocessor expressions }
           in_preproc_comp_expr : boolean;
 
-          { last character read }
-          last_c : char;
-
           constructor Create(const fn:string; is_macro: boolean = false);
           destructor Destroy;override;
         { File buffer things }
@@ -193,6 +190,7 @@ interface
           procedure tokenwritesizeint(val : asizeint);
           procedure tokenwritelongint(val : longint);
           procedure tokenwritelongword(val : longword);
+          procedure tokenwritebyte(val : byte);
           procedure tokenwriteword(val : word);
           procedure tokenwriteshortint(val : shortint);
           procedure tokenwriteset(var b;size : longint);
@@ -2904,6 +2902,14 @@ type
         recordtokenbuf.write(val,sizeof(shortint));
       end;
 
+    procedure tscannerfile.tokenwritebyte(val : byte);
+      begin
+{$ifdef FPC_BIG_ENDIAN}
+        val:=swapendian(val);
+{$endif}
+        recordtokenbuf.write(val,sizeof(byte));
+      end;
+
     procedure tscannerfile.tokenwriteword(val : word);
       begin
 {$ifdef FPC_BIG_ENDIAN}
@@ -3119,6 +3125,7 @@ type
 {$POP}
             lineendingtype:=tlineendingtype(tokenreadenum(sizeof(tlineendingtype)));
             whitespacetrimcount:=tokenreadword;
+            whitespacetrimauto:=boolean(tokenreadbyte);
             endpos:=replaytokenbuf.pos;
             if endpos-startpos<>expected_size then
              Comment(V_Error,'Wrong size of Settings read-in');
@@ -3199,6 +3206,7 @@ type
 {$POP}
            tokenwriteenum(lineendingtype,sizeof(tlineendingtype));
            tokenwriteword(whitespacetrimcount);
+           tokenwritebyte(byte(whitespacetrimauto));
            endpos:=recordtokenbuf.pos;
            size:=endpos-startpos;
            recordtokenbuf.seek(sizepos);
@@ -4743,8 +4751,9 @@ type
         mac     : tmacro;
         asciinr : string[33];
         iswidestring : boolean;
-        in_multiline_string,had_newline,first_multiline: boolean;
-        trimcount: word;
+        in_multiline_string,had_newline,first_multiline : boolean;
+        trimcount,multiline_start_column : word;
+        last_c : char;
       label
         quote_label,exit_label;
       begin
@@ -5186,7 +5195,9 @@ type
                begin
                  in_multiline_string:=(c='`');
                  if in_multiline_string and (not (m_multiline_strings in current_settings.modeswitches)) then
-                   Illegal_Char(c);
+                   Illegal_Char(c)
+                 else
+                   multiline_start_column:=current_filepos.column;
                  len:=0;
                  cstringpattern:='';
                  iswidestring:=false;
@@ -5300,7 +5311,7 @@ type
                      '''','`' :
                        begin
                          in_multiline_string:=(c='`');
-                         first_multiline:=in_multiline_string;
+                         first_multiline:=in_multiline_string and (last_c in [#0,#32,#61]);
                          repeat
                            readchar;
                            quote_label:
@@ -5308,9 +5319,12 @@ type
                                #26 :
                                  end_of_file;
                                #32,#9,#11 :
-                                 if (had_newline or first_multiline) and (current_settings.whitespacetrimcount > 0) then
+                                 if (had_newline or first_multiline) and (current_settings.whitespacetrimauto or (current_settings.whitespacetrimcount > 0)) then
                                    begin
-                                     trimcount:=current_settings.whitespacetrimcount;
+                                     if current_settings.whitespacetrimauto then
+                                       trimcount:=multiline_start_column
+                                     else
+                                       trimcount:=current_settings.whitespacetrimcount;
                                      while (c in [#32,#9,#11]) and (trimcount > 0) do
                                        begin
                                          readchar;
@@ -5442,7 +5456,6 @@ type
                                        le_raw : concatwidestringchar(patternw,asciichar2unicode(c));
                                      end;
                                    had_newline:=true;
-                                   last_c:=c;
                                    inc(line_no);
                                  end
                                else if not (in_multiline_string and (c in [#10,#13])) then
@@ -5473,7 +5486,6 @@ type
                                       le_raw : cstringpattern[len]:=c;
                                     end;
                                     had_newline:=true;
-                                    last_c:=c;
                                     inc(line_no);
                                   end
                                 else if not (in_multiline_string and (c in [#10,#13])) then
@@ -5484,6 +5496,7 @@ type
                                     cstringpattern[len]:=c;
                                   end;
                              end;
+                         last_c:=c;
                          until false;
                        end;
                      '^' :
@@ -5510,6 +5523,7 @@ type
                      else
                       break;
                    end;
+                 last_c:=c;
                  until false;
                  { strings with length 1 become const chars }
                  if iswidestring then

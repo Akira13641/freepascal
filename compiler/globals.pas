@@ -187,6 +187,8 @@ interface
          lineendingtype : tlineendingtype;
 
          whitespacetrimcount : word;
+         
+         whitespacetrimauto : boolean;
        end;
 
     const
@@ -579,7 +581,8 @@ interface
         controllertype : ct_none;
         pmessage : nil;
         lineendingtype : le_raw;
-        whitespacetrimcount : 0
+        whitespacetrimcount : 0;
+        whitespacetrimauto : false
       );
 
     var
