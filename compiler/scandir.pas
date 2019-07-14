@@ -1033,7 +1033,7 @@ unit scandir;
         if not (m_multiline_strings in current_settings.modeswitches) then
           Message1(scan_e_illegal_directive,'MULTILINESTRINGTRIMLEFT');
         current_scanner.skipspace;
-        if (c in [1..9]) then
+        if (c in ['1'..'9']) then
           begin
             count:=current_scanner.readval;
             if (count<0) or (count>65535) then
