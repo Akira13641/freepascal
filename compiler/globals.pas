@@ -580,7 +580,7 @@ interface
 {$endif defined(LLVM) and not defined(GENERIC_CPU)}
         controllertype : ct_none;
         pmessage : nil;
-        lineendingtype : le_raw;
+        lineendingtype : le_platform;
         whitespacetrimcount : 0;
         whitespacetrimauto : false
       );
