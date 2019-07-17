@@ -1,7 +1,7 @@
 { %FAIL }
 
 { Will show: 
-  tmultilinestring28.pas(17,1) Fatal: Unterminated multi-line string beginning at line 8, column 7. }
+  tmultilinestring28.pp(20,1) Fatal: Unterminated multi-line string beginning at line 11, column 7. }
 
 program tmultilinestring28;
 
