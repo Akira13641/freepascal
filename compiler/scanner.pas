@@ -4288,7 +4288,9 @@ type
                   if not in_multiline_string then
                     begin
                       if (multiline_start_line>0) and (multiline_start_column>0) then
-                        Message2(scan_f_unterminated_multiline_string, tostr(multiline_start_line), tostr(multiline_start_column))
+                        Message2(scan_f_unterminated_multiline_string, 
+                                 tostr(multiline_start_line), 
+                                 tostr(multiline_start_column))
                       else
                         Message(scan_f_string_exceeds_line);
                     end;
