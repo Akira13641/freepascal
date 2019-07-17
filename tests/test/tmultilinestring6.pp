@@ -45,7 +45,7 @@ const D =
 😊
 `;
 
-{$MultiLineStringLineEnding RAW}
+{$MultiLineStringLineEnding SOURCE}
 
 const E =
 `
