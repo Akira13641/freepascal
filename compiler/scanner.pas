@@ -101,9 +101,6 @@ interface
          procedure savetokenpos;
          procedure restoretokenpos;
          procedure writetoken(t: ttoken);
-         procedure buildplatformnewlineascii(var len: longint);
-         procedure buildplatformnewlineutf8;
-         procedure buildplatformnewlineunicode;
          function readtoken : ttoken;
        public
           inputfile    : tinputfile;  { current inputfile list }
@@ -148,6 +145,12 @@ interface
 
           { true, if we are parsing preprocessor expressions }
           in_preproc_comp_expr : boolean;
+
+          { Having these tracked in the scanner class itself versus local variables allows for
+            informative error handling that would be impossible otherwise }
+          in_multiline_string : boolean;
+          multiline_start_line : longint;
+          multiline_start_column : word;
 
           constructor Create(const fn:string; is_macro: boolean = false);
           destructor Destroy;override;
@@ -3778,7 +3781,10 @@ type
     procedure tscannerfile.end_of_file;
       begin
         checkpreprocstack;
-        Message(scan_f_end_of_file);
+        if in_multiline_string then
+          Message2(scan_f_unterminated_multiline_string, tostr(multiline_start_line), tostr(multiline_start_column))
+        else
+          Message(scan_f_end_of_file);
       end;
 
   {-------------------------------------------
@@ -4261,7 +4267,7 @@ type
     function tscannerfile.readquotedstring:string;
       var
         i : longint;
-        msgwritten,in_multiline_string : boolean;
+        msgwritten : boolean;
       begin
         i:=0;
         msgwritten:=false;
@@ -4280,7 +4286,12 @@ type
                   end_of_file;
                 #10,#13 :
                   if not in_multiline_string then
-                    Message(scan_f_string_exceeds_line);
+                    begin
+                      if (multiline_start_line>0) and (multiline_start_column>0) then
+                        Message2(scan_f_unterminated_multiline_string, tostr(multiline_start_line), tostr(multiline_start_column))
+                      else
+                        Message(scan_f_string_exceeds_line);
+                    end;
                 '''' :
                   if not in_multiline_string then
                     begin
@@ -4422,7 +4433,7 @@ type
     procedure tscannerfile.skipuntildirective;
       var
         found : longint;
-        next_char_loaded,in_multiline_string : boolean;
+        next_char_loaded : boolean;
       begin
          found:=0;
          next_char_loaded:=false;
@@ -4700,46 +4711,6 @@ type
                                Token Scanner
 ****************************************************************************}
 
-    procedure tscannerfile.buildplatformnewlineascii(var len: longint);
-      begin
-        if target_info.newline=#13 then
-          cstringpattern[len]:=#13
-        else if target_info.newline=#13#10 then
-          begin
-            cstringpattern[len]:=#13;
-            inc(len);
-            cstringpattern[len]:=#10;
-          end
-        else if target_info.newline=#10 then
-          cstringpattern[len]:=#10;
-      end;
-
-    procedure tscannerfile.buildplatformnewlineutf8;
-      begin
-        if target_info.newline=#13 then
-          concatwidestringchar(patternw,ord(#13))
-        else if target_info.newline=#13#10 then
-          begin
-            concatwidestringchar(patternw,ord(#13));
-            concatwidestringchar(patternw,ord(#10));
-          end
-        else if target_info.newline=#10 then
-          concatwidestringchar(patternw,ord(#10));
-      end;
-
-    procedure tscannerfile.buildplatformnewlineunicode;
-      begin
-        if target_info.newline=#13 then
-          concatwidestringchar(patternw,asciichar2unicode(#13))
-        else if target_info.newline=#13#10 then
-          begin
-            concatwidestringchar(patternw,asciichar2unicode(#13));
-            concatwidestringchar(patternw,asciichar2unicode(#10));
-          end
-        else if target_info.newline=#10 then
-          concatwidestringchar(patternw,asciichar2unicode(#10));
-      end;
-
     procedure tscannerfile.readtoken(allowrecordtoken:boolean);
       var
         code    : integer;
@@ -4751,8 +4722,8 @@ type
         mac     : tmacro;
         asciinr : string[33];
         iswidestring : boolean;
-        in_multiline_string,had_newline,first_multiline : boolean;
-        trimcount,multiline_start_column : word;
+        had_newline,first_multiline : boolean;
+        trimcount : word;
         last_c : char;
       label
         quote_label,exit_label;
@@ -5194,10 +5165,16 @@ type
              '''','#','^','`' :
                begin
                  in_multiline_string:=(c='`');
-                 if in_multiline_string and (not (m_multiline_strings in current_settings.modeswitches)) then
-                   Illegal_Char(c)
-                 else
-                   multiline_start_column:=current_filepos.column;
+                 if in_multiline_string then
+                   begin
+                     if not (m_multiline_strings in current_settings.modeswitches) then
+                       Illegal_Char(c)
+                     else
+                       begin
+                         multiline_start_line:=current_filepos.line;
+                         multiline_start_column:=current_filepos.column;
+                       end;
+                   end;
                  len:=0;
                  cstringpattern:='';
                  iswidestring:=false;
@@ -5319,13 +5296,15 @@ type
                                #26 :
                                  end_of_file;
                                #32,#9,#11 :
-                                 if (had_newline or first_multiline) and (current_settings.whitespacetrimauto or (current_settings.whitespacetrimcount > 0)) then
+                                 if (had_newline or first_multiline) and
+                                    (current_settings.whitespacetrimauto or
+                                    (current_settings.whitespacetrimcount>0)) then
                                    begin
                                      if current_settings.whitespacetrimauto then
                                        trimcount:=multiline_start_column
                                      else
                                        trimcount:=current_settings.whitespacetrimcount;
-                                     while (c in [#32,#9,#11]) and (trimcount > 0) do
+                                     while (c in [#32,#9,#11]) and (trimcount>0) do
                                        begin
                                          readchar;
                                          dec(trimcount);
@@ -5336,7 +5315,12 @@ type
                                    end;
                                #10,#13 :
                                  if not in_multiline_string then
-                                   Message(scan_f_string_exceeds_line);
+                                   begin
+                                     if (multiline_start_line>0) and (multiline_start_column>0) then
+                                       Message2(scan_f_unterminated_multiline_string, tostr(multiline_start_line), tostr(multiline_start_column))
+                                     else
+                                       Message(scan_f_string_exceeds_line);
+                                   end;
                                '''' :
                                  if not in_multiline_string then
                                    begin
@@ -5439,8 +5423,19 @@ type
                                              concatwidestringchar(patternw,ord(#10));
                                            end;
                                          le_lf : concatwidestringchar(patternw,ord(#10));
-                                         le_platform : buildplatformnewlineutf8;
-                                         le_raw : concatwidestringchar(patternw,ord(c));
+                                         le_platform :
+                                           begin
+                                             if target_info.newline=#13 then
+                                               concatwidestringchar(patternw,ord(#13))
+                                             else if target_info.newline=#13#10 then
+                                               begin
+                                                 concatwidestringchar(patternw,ord(#13));
+                                                 concatwidestringchar(patternw,ord(#10));
+                                               end
+                                             else if target_info.newline=#10 then
+                                               concatwidestringchar(patternw,ord(#10));
+                                           end;
+                                         le_source : concatwidestringchar(patternw,ord(c));
                                        end;
                                      end
                                    else
@@ -5452,8 +5447,19 @@ type
                                            concatwidestringchar(patternw,asciichar2unicode(#10));
                                          end;
                                        le_lf : concatwidestringchar(patternw,asciichar2unicode(#10));
-                                       le_platform : buildplatformnewlineunicode;
-                                       le_raw : concatwidestringchar(patternw,asciichar2unicode(c));
+                                       le_platform :
+                                         begin
+                                           if target_info.newline=#13 then
+                                             concatwidestringchar(patternw,asciichar2unicode(#13))
+                                           else if target_info.newline=#13#10 then
+                                             begin
+                                               concatwidestringchar(patternw,asciichar2unicode(#13));
+                                               concatwidestringchar(patternw,asciichar2unicode(#10));
+                                             end
+                                           else if target_info.newline=#10 then
+                                             concatwidestringchar(patternw,asciichar2unicode(#10));
+                                         end;
+                                       le_source : concatwidestringchar(patternw,asciichar2unicode(c));
                                      end;
                                    had_newline:=true;
                                    inc(line_no);
@@ -5482,8 +5488,20 @@ type
                                           cstringpattern[len]:=#10;
                                         end;
                                       le_lf : cstringpattern[len]:=#10;
-                                      le_platform : buildplatformnewlineascii(len);
-                                      le_raw : cstringpattern[len]:=c;
+                                      le_platform :
+                                        begin
+                                          if target_info.newline=#13 then
+                                            cstringpattern[len]:=#13
+                                          else if target_info.newline=#13#10 then
+                                            begin
+                                              cstringpattern[len]:=#13;
+                                              inc(len);
+                                              cstringpattern[len]:=#10;
+                                            end
+                                          else if target_info.newline=#10 then
+                                            cstringpattern[len]:=#10;
+                                        end;
+                                      le_source : cstringpattern[len]:=c;
                                     end;
                                     had_newline:=true;
                                     inc(line_no);
@@ -5631,6 +5649,10 @@ exit_label:
         low,high,mid: longint;
         optoken: ttoken;
       begin
+         { Added the assignment to NOTOKEN below because I got a DFA uninitialized result
+           warning when building the compiler with -O3, which broke compilation with -Sew.
+           - Akira1364 }
+         readpreproc:=NOTOKEN;
          skipspace;
          case c of
            '_',

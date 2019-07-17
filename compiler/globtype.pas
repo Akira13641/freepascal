@@ -616,7 +616,7 @@ interface
                           {Use the platform default}
                           le_platform,
                           {Use whatever is in the file}
-                          le_raw);
+                          le_source);
                           
      const
        proccalloptionStr : array[tproccalloption] of string[16]=('',

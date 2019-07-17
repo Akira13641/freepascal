@@ -1226,7 +1226,12 @@ implementation
                consume(_PLUS);
              end;
            _EOF :
-             Message(scan_f_end_of_file);
+             if current_scanner.in_multiline_string then
+               Message2(scan_f_unterminated_multiline_string,
+                        tostr(current_scanner.multiline_start_line),
+                        tostr(current_scanner.multiline_start_column))
+             else
+               Message(scan_f_end_of_file);
          else
            begin
              { don't typecheck yet, because that will also simplify, which may

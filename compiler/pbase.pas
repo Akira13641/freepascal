@@ -144,10 +144,16 @@ implementation
     procedure consume(i : ttoken);
       begin
         if (token<>i) and (idtoken<>i) then
-          if token=_id then
-            Message2(scan_f_syn_expected,tokeninfo^[i].str,'identifier '+pattern)
-          else
-            Message2(scan_f_syn_expected,tokeninfo^[i].str,tokeninfo^[token].str)
+          begin
+            if (current_scanner.multiline_start_column>0) and (current_scanner.multiline_start_line>0) then
+              Message2(scan_f_unterminated_multiline_string,
+                       tostr(current_scanner.multiline_start_line),
+                       tostr(current_scanner.multiline_start_column))
+            else if token=_id then
+              Message2(scan_f_syn_expected,tokeninfo^[i].str,'identifier '+pattern)
+            else
+              Message2(scan_f_syn_expected,tokeninfo^[i].str,tokeninfo^[token].str);
+          end
         else
           begin
             if token=_END then
@@ -178,7 +184,12 @@ implementation
             if token=_EOF then
              begin
                Consume(atoken);
-               Message(scan_f_end_of_file);
+               if current_scanner.in_multiline_string then
+                 Message2(scan_f_unterminated_multiline_string,
+                          tostr(current_scanner.multiline_start_line),
+                          tostr(current_scanner.multiline_start_column))
+               else
+                 Message(scan_f_end_of_file);
                exit;
              end;
           end;

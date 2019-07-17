@@ -1019,8 +1019,8 @@ unit scandir;
           current_settings.lineendingtype:=le_lf
         else if (s='PLATFORM') then
           current_settings.lineendingtype:=le_platform
-        else if (s='RAW') then
-          current_settings.lineendingtype:=le_raw
+        else if (s='SOURCE') then
+          current_settings.lineendingtype:=le_source
         else
           Message(scan_e_unknown_lineending_type);
       end;
