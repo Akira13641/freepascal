@@ -432,7 +432,7 @@ scan_w_setpeosversion_not_support=02103_W_SETPEOSVERSION is not supported by the
 scan_w_setpesubsysversion_not_support=02104_W_SETPESUBSYSVERSION is not supported by the target OS
 % The \var{\{\$SETPESUBSYSVERSION\}} directive is not supported by the target OS.
 scan_n_changecputype=02105_N_Changed CPU type to be consistent with specified controller
-scan_e_unknown_lineending_type=02106_E_Unknown line ending type specified. Valid options are CR, CRLF, LF, PLATFORM, or SOURCE. 
+scan_e_unknown_lineending_type=02106_E_Unknown line ending type specified. Valid options are CR, CRLF, LF, PLATFORM, or SOURCE.
 % The line ending type that was specified is not one of CR, CRLF, LF, PLATFORM, or SOURCE.
 scan_e_trimcount_out_of_range=02107_E_The value of MULTILINESTRINGTRIMLEFT cannot be less than 0 or greater than 65535.
 % MULTILINESTRINGTRIMLEFT is stored in a "word" field, and thus is restricted to the range 0..65535.
