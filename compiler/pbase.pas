@@ -145,7 +145,7 @@ implementation
       begin
         if (token<>i) and (idtoken<>i) then
           begin
-            if (current_scanner.multiline_start_column>0) and (current_scanner.multiline_start_line>0) then
+            if current_scanner.had_multiline_string then
               Message2(scan_f_unterminated_multiline_string,
                        tostr(current_scanner.multiline_start_line),
                        tostr(current_scanner.multiline_start_column))
@@ -184,7 +184,7 @@ implementation
             if token=_EOF then
              begin
                Consume(atoken);
-               if current_scanner.in_multiline_string then
+               if current_scanner.had_multiline_string then
                  Message2(scan_f_unterminated_multiline_string,
                           tostr(current_scanner.multiline_start_line),
                           tostr(current_scanner.multiline_start_column))

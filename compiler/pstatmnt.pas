@@ -1226,7 +1226,7 @@ implementation
                consume(_PLUS);
              end;
            _EOF :
-             if current_scanner.in_multiline_string then
+             if current_scanner.had_multiline_string then
                Message2(scan_f_unterminated_multiline_string,
                         tostr(current_scanner.multiline_start_line),
                         tostr(current_scanner.multiline_start_column))

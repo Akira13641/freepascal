@@ -148,7 +148,7 @@ interface
 
           { Having these tracked in the scanner class itself versus local variables allows for
             informative error handling that would be impossible otherwise }
-          in_multiline_string : boolean;
+          in_multiline_string, had_multiline_string : boolean;
           multiline_start_line : longint;
           multiline_start_column : word;
 
@@ -4273,6 +4273,7 @@ type
         msgwritten:=false;
         if (c in ['''','`']) then
           begin
+            had_multiline_string:=in_multiline_string;
             in_multiline_string:=(c='`');
             if in_multiline_string and (not (m_multiline_strings in current_settings.modeswitches)) then
               begin
@@ -4287,9 +4288,9 @@ type
                 #10,#13 :
                   if not in_multiline_string then
                     begin
-                      if (multiline_start_line>0) and (multiline_start_column>0) then
-                        Message2(scan_f_unterminated_multiline_string, 
-                                 tostr(multiline_start_line), 
+                      if had_multiline_string then
+                        Message2(scan_f_unterminated_multiline_string,
+                                 tostr(multiline_start_line),
                                  tostr(multiline_start_column))
                       else
                         Message(scan_f_string_exceeds_line);
@@ -4496,38 +4497,40 @@ type
              '''','`' :
                if (current_commentstyle=comment_none) then
                  begin
+                   had_multiline_string:=in_multiline_string;
                    in_multiline_string:=(c='`');
-                   if not (in_multiline_string and (not (m_multiline_strings in current_settings.modeswitches))) then
-                     repeat
-                       readchar;
-                       case c of
-                         #26 :
-                           end_of_file;
-                         #10,#13 :
-                           if not in_multiline_string then
-                             break;
-                         '''' :
-                           if not in_multiline_string then
-                             begin
-                               readchar;
-                               if c<>'''' then
-                                begin
-                                  next_char_loaded:=true;
-                                  break;
-                                end;
-                             end;
-                         '`' :
-                           if in_multiline_string then
-                             begin
-                               readchar;
-                               if c<>'`' then
-                                begin
-                                  next_char_loaded:=true;
-                                  break;
-                                end;
-                             end;
-                       end;
-                     until false;
+                   if in_multiline_string and (not (m_multiline_strings in current_settings.modeswitches)) then
+                     Illegal_Char(c);
+                   repeat
+                     readchar;
+                     case c of
+                       #26 :
+                         end_of_file;
+                       #10,#13 :
+                         if not in_multiline_string then
+                           break;
+                       '''' :
+                         if not in_multiline_string then
+                           begin
+                             readchar;
+                             if c<>'''' then
+                              begin
+                                next_char_loaded:=true;
+                                break;
+                              end;
+                           end;
+                       '`' :
+                         if in_multiline_string then
+                           begin
+                             readchar;
+                             if c<>'`' then
+                              begin
+                                next_char_loaded:=true;
+                                break;
+                              end;
+                           end;
+                     end;
+                   until false;
                  end;
              '(' :
                begin
@@ -5166,6 +5169,7 @@ type
 
              '''','#','^','`' :
                begin
+                 had_multiline_string:=in_multiline_string;
                  in_multiline_string:=(c='`');
                  if in_multiline_string then
                    begin
@@ -5289,6 +5293,7 @@ type
                        end;
                      '''','`' :
                        begin
+                         had_multiline_string:=in_multiline_string;
                          in_multiline_string:=(c='`');
                          first_multiline:=in_multiline_string and (last_c in [#0,#32,#61]);
                          repeat
@@ -5318,8 +5323,10 @@ type
                                #10,#13 :
                                  if not in_multiline_string then
                                    begin
-                                     if (multiline_start_line>0) and (multiline_start_column>0) then
-                                       Message2(scan_f_unterminated_multiline_string, tostr(multiline_start_line), tostr(multiline_start_column))
+                                     if had_multiline_string then
+                                       Message2(scan_f_unterminated_multiline_string,
+                                                tostr(multiline_start_line),
+                                                tostr(multiline_start_column))
                                      else
                                        Message(scan_f_string_exceeds_line);
                                    end;
@@ -5418,13 +5425,15 @@ type
                                    if current_settings.sourcecodepage=CP_UTF8 then
                                      begin
                                        case current_settings.lineendingtype of
-                                         le_cr : concatwidestringchar(patternw,ord(#13));
+                                         le_cr :
+                                           concatwidestringchar(patternw,ord(#13));
                                          le_crlf :
                                            begin
                                              concatwidestringchar(patternw,ord(#13));
                                              concatwidestringchar(patternw,ord(#10));
                                            end;
-                                         le_lf : concatwidestringchar(patternw,ord(#10));
+                                         le_lf :
+                                           concatwidestringchar(patternw,ord(#10));
                                          le_platform :
                                            begin
                                              if target_info.newline=#13 then
@@ -5437,18 +5446,21 @@ type
                                              else if target_info.newline=#10 then
                                                concatwidestringchar(patternw,ord(#10));
                                            end;
-                                         le_source : concatwidestringchar(patternw,ord(c));
+                                         le_source :
+                                           concatwidestringchar(patternw,ord(c));
                                        end;
                                      end
                                    else
                                      case current_settings.lineendingtype of
-                                       le_cr : concatwidestringchar(patternw,asciichar2unicode(#13));
+                                       le_cr :
+                                         concatwidestringchar(patternw,asciichar2unicode(#13));
                                        le_crlf :
                                          begin
                                            concatwidestringchar(patternw,asciichar2unicode(#13));
                                            concatwidestringchar(patternw,asciichar2unicode(#10));
                                          end;
-                                       le_lf : concatwidestringchar(patternw,asciichar2unicode(#10));
+                                       le_lf :
+                                         concatwidestringchar(patternw,asciichar2unicode(#10));
                                        le_platform :
                                          begin
                                            if target_info.newline=#13 then
@@ -5461,7 +5473,8 @@ type
                                            else if target_info.newline=#10 then
                                              concatwidestringchar(patternw,asciichar2unicode(#10));
                                          end;
-                                       le_source : concatwidestringchar(patternw,asciichar2unicode(c));
+                                       le_source :
+                                         concatwidestringchar(patternw,asciichar2unicode(c));
                                      end;
                                    had_newline:=true;
                                    inc(line_no);
@@ -5482,14 +5495,16 @@ type
                                       setlength(cstringpattern,length(cstringpattern)+256);
                                     inc(len);
                                     case current_settings.lineendingtype of
-                                      le_cr : cstringpattern[len]:=#13;
+                                      le_cr :
+                                        cstringpattern[len]:=#13;
                                       le_crlf :
                                         begin
                                           cstringpattern[len]:=#13;
                                           inc(len);
                                           cstringpattern[len]:=#10;
                                         end;
-                                      le_lf : cstringpattern[len]:=#10;
+                                      le_lf :
+                                        cstringpattern[len]:=#10;
                                       le_platform :
                                         begin
                                           if target_info.newline=#13 then
@@ -5503,7 +5518,8 @@ type
                                           else if target_info.newline=#10 then
                                             cstringpattern[len]:=#10;
                                         end;
-                                      le_source : cstringpattern[len]:=c;
+                                      le_source :
+                                        cstringpattern[len]:=c;
                                     end;
                                     had_newline:=true;
                                     inc(line_no);
