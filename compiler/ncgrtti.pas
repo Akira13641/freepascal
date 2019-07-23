@@ -393,7 +393,7 @@ implementation
           begin
             current_asmdata.getglobaldatalabel(loclab);
 
-            loctcb:=ctai_typedconstbuilder.create([tcalo_is_lab,tcalo_make_dead_strippable,tcalo_apply_constalign]);
+            loctcb:=ctai_typedconstbuilder.create([tcalo_is_lab,tcalo_make_dead_strippable]);
 
             loctcb.begin_anonymous_record('',defaultpacking,min(reqalign,SizeOf(PInt)),
               targetinfos[target_info.system]^.alignment.recordalignmin);
@@ -932,46 +932,46 @@ implementation
         end;
 
         procedure stringdef_rtti(def:tstringdef);
+        const
+          string_typekinds: array[tstringtype] of byte = (
+            tkSString,tkLString,tkAString,tkWString,tkUString
+          );
         begin
+          write_header(tcb,def,string_typekinds[def.stringtype]);
+          tcb.begin_anonymous_record(
+            internaltypeprefixName[itp_rtti_outer]+tostr(string_typekinds[def.stringtype]),
+            defaultpacking,reqalign,
+            targetinfos[target_info.system]^.alignment.recordalignmin);
+          write_common_rtti_data(tcb,def,rt);
           case def.stringtype of
             st_ansistring:
               begin
-                write_header(tcb,def,tkAString);
-                { align }
                 tcb.begin_anonymous_record(
-                  internaltypeprefixName[itp_rtti_ansistr],
+                  internaltypeprefixName[itp_rtti_case]+tostr(string_typekinds[def.stringtype]),
                   defaultpacking,reqalign,
                   targetinfos[target_info.system]^.alignment.recordalignmin);
-                write_common_rtti_data(tcb,def,rt);
                 tcb.emit_ord_const(def.encoding,u16inttype);
                 tcb.end_anonymous_record;
               end;
 
-            st_widestring:
-              begin
-                write_header(tcb,def,tkWString);
-                write_common_rtti_data(tcb,def,rt);
-              end;
-
-            st_unicodestring:
-              begin
-                write_header(tcb,def,tkUString);
-                write_common_rtti_data(tcb,def,rt);
-              end;
-
-            st_longstring:
-              begin
-                write_header(tcb,def,tkLString);
-                write_common_rtti_data(tcb,def,rt);
-              end;
-
             st_shortstring:
               begin
-                 write_header(tcb,def,tkSString);
-                 write_common_rtti_data(tcb,def,rt);
-                 tcb.emit_ord_const(def.len,u8inttype);
+                tcb.begin_anonymous_record(
+                  internaltypeprefixName[itp_rtti_case]+tostr(string_typekinds[def.stringtype]),
+                  defaultpacking,reqalign,
+                  targetinfos[target_info.system]^.alignment.recordalignmin);
+                tcb.emit_ord_const(def.len,u8inttype);
+                tcb.end_anonymous_record;
               end;
+
+            st_widestring,
+            st_unicodestring,
+            st_longstring:
+              { nothing }
+              ;
+
           end;
+          tcb.end_anonymous_record;
         end;
 
         procedure enumdef_rtti(def: tenumdef);
@@ -1825,7 +1825,7 @@ implementation
           begin
             current_asmdata.getglobaldatalabel(arglab);
 
-            argtcb:=ctai_typedconstbuilder.create([tcalo_is_lab,tcalo_make_dead_strippable,tcalo_apply_constalign]);
+            argtcb:=ctai_typedconstbuilder.create([tcalo_is_lab,tcalo_make_dead_strippable]);
 
             argtcb.begin_anonymous_record('',defaultpacking,min(reqalign,SizeOf(PInt)),
               targetinfos[target_info.system]^.alignment.recordalignmin);
@@ -1884,7 +1884,7 @@ implementation
       { first write the attribute list as a separate table }
       current_asmdata.getglobaldatalabel(tbllab);
 
-      tbltcb:=ctai_typedconstbuilder.create([tcalo_is_lab,tcalo_make_dead_strippable,tcalo_apply_constalign]);
+      tbltcb:=ctai_typedconstbuilder.create([tcalo_is_lab,tcalo_make_dead_strippable]);
 
       tbltcb.begin_anonymous_record(
         internaltypeprefixName[itp_rtti_attr_list]+tostr(count),

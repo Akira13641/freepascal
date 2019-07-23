@@ -267,7 +267,11 @@ unit TypInfo;
         ArgData: Pointer;
       end;
 
+{$ifdef CPU16}
+      TAttributeEntryList = array[0..(High(SizeUInt) div SizeOf(TAttributeEntry))-1] of TAttributeEntry;
+{$else CPU16}
       TAttributeEntryList = array[0..$ffff] of TAttributeEntry;
+{$endif CPU16}
 
       TAttributeTable =
       {$ifndef FPC_REQUIRES_PROPER_ALIGNMENT}
@@ -542,26 +546,26 @@ unit TypInfo;
         property PropertyTable: PPropData read GetPropertyTable;
         property MethodTable: PIntfMethodTable read GetMethodTable;
       public
-      case TTypeKind of
-        tkInterface: (
-        {$ifdef PROVIDE_ATTR_TABLE}
-          AttributeTable : PAttributeTable;
-        {$endif}
-          Parent: PPTypeInfo;
-          Flags : TIntfFlagsBase;
-          IID: TGUID;
-          UnitNameField: ShortString;
-          { IIDStr: ShortString; }
-          { PropertyTable: TPropData }
-        );
-        { include for proper alignment }
-        tkInt64: (
-          dummy : Int64
-        );
+      {$ifdef PROVIDE_ATTR_TABLE}
+        AttributeTable : PAttributeTable;
+      {$endif}
+        case TTypeKind of
+          tkInterface: (
+            Parent: PPTypeInfo;
+            Flags : TIntfFlagsBase;
+            IID: TGUID;
+            UnitNameField: ShortString;
+            { IIDStr: ShortString; }
+            { PropertyTable: TPropData }
+          );
+          { include for proper alignment }
+          tkInt64: (
+            dummy : Int64
+          );
 {$ifndef FPUNONE}
-        tkFloat:
-          (FloatType : TFloatType
-        );
+          tkFloat:
+            (FloatType : TFloatType
+          );
 {$endif}
       end;
 
