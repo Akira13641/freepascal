@@ -1606,7 +1606,7 @@ unit cgcpu;
     procedure tcgavr.a_cmp_const_reg_label(list : TAsmList;size : tcgsize;
       cmp_op : topcmp;a : tcgint;reg : tregister;l : tasmlabel);
       var
-        swapped : boolean;
+        swapped , test_msb: boolean;
         tmpreg : tregister;
         i : byte;
       begin
@@ -1637,18 +1637,31 @@ unit cgcpu;
                 end;
             end;
 
-            if swapped then
-              list.concat(taicpu.op_reg_reg(A_CP,NR_R1,reg))
-            else
-              list.concat(taicpu.op_reg_reg(A_CP,reg,NR_R1));
-
-            for i:=2 to tcgsize2size[size] do
+            { If doing a signed test for x<0, we can simply test the sign bit
+              of the most significant byte }
+            if (cmp_op in [OC_LT,OC_GTE]) and
+               (not swapped) then
               begin
-                reg:=GetNextReg(reg);
+                for i:=2 to tcgsize2size[size] do
+                  reg:=GetNextReg(reg);
+
+                list.concat(taicpu.op_reg_reg(A_CP,reg,NR_R1));
+              end
+            else
+              begin
                 if swapped then
-                  list.concat(taicpu.op_reg_reg(A_CPC,NR_R1,reg))
+                  list.concat(taicpu.op_reg_reg(A_CP,NR_R1,reg))
                 else
-                  list.concat(taicpu.op_reg_reg(A_CPC,reg,NR_R1));
+                  list.concat(taicpu.op_reg_reg(A_CP,reg,NR_R1));
+
+                for i:=2 to tcgsize2size[size] do
+                  begin
+                    reg:=GetNextReg(reg);
+                    if swapped then
+                      list.concat(taicpu.op_reg_reg(A_CPC,NR_R1,reg))
+                    else
+                      list.concat(taicpu.op_reg_reg(A_CPC,reg,NR_R1));
+                  end;
               end;
 
             a_jmp_cond(list,cmp_op,l);
@@ -1835,44 +1848,31 @@ unit cgcpu;
 
     procedure tcgavr.gen_multiply(list: TAsmList; op: topcg; size: TCgSize; src2, src1, dst: tregister; check_overflow: boolean; var ovloc: tlocation);
 
-      procedure perform_r1_check;
+      procedure perform_r1_check(overflow_label: TAsmLabel; other_reg: TRegister=NR_R1);
         var
-          hl: TAsmLabel;
           ai: taicpu;
         begin
           if check_overflow then
             begin
-              current_asmdata.getjumplabel(hl);
-              list.concat(taicpu.op_reg_reg(A_AND,NR_R1,NR_R1));
+              list.concat(taicpu.op_reg_reg(A_OR,NR_R1,other_reg));
 
-              ai:=Taicpu.Op_Sym(A_BRxx,hl);
-              ai.SetCondition(C_EQ);
+              ai:=Taicpu.Op_Sym(A_BRxx,overflow_label);
+              ai.SetCondition(C_NE);
               ai.is_jmp:=true;
               list.concat(ai);
-
-              list.concat(taicpu.op_none(A_SET));
-
-              a_label(list,hl);
             end;
         end;
 
-      procedure perform_ovf_check;
+      procedure perform_ovf_check(overflow_label: TAsmLabel);
         var
           ai: taicpu;
-          hl: TAsmLabel;
         begin
           if check_overflow then
             begin
-              current_asmdata.getjumplabel(hl);
-
-              ai:=Taicpu.Op_Sym(A_BRxx,hl);
-              ai.SetCondition(C_CC);
+              ai:=Taicpu.Op_Sym(A_BRxx,overflow_label);
+              ai.SetCondition(C_CS);
               ai.is_jmp:=true;
               list.concat(ai);
-
-              list.concat(taicpu.op_none(A_SET));
-
-              a_label(list,hl);
             end;
         end;
 
@@ -1880,15 +1880,14 @@ unit cgcpu;
         pd: tprocdef;
         paraloc1, paraloc2: tcgpara;
         ai: taicpu;
-        hl: TAsmLabel;
+        hl, no_overflow: TAsmLabel;
         name: String;
       begin
         ovloc.loc:=LOC_VOID;
         if size in [OS_8,OS_S8] then
           begin
             if (CPUAVR_HAS_MUL in cpu_capabilities[current_settings.cputype]) and
-               ((not check_overflow) or
-                (size=OS_8)) then
+               (op=OP_MUL) then
               begin
                 cg.a_reg_alloc(list,NR_R0);
                 cg.a_reg_alloc(list,NR_R1);
@@ -1899,16 +1898,16 @@ unit cgcpu;
                     current_asmdata.getjumplabel(hl);
                     list.concat(taicpu.op_reg_reg(A_AND,NR_R1,NR_R1));
 
+                     { Clear carry as it's not affected by any of the instructions }
+                    list.concat(taicpu.op_none(A_CLC));
+
                     ai:=Taicpu.Op_Sym(A_BRxx,hl);
                     ai.SetCondition(C_EQ);
                     ai.is_jmp:=true;
                     list.concat(ai);
 
                     list.concat(taicpu.op_reg(A_CLR,NR_R1));
-                    if op=OP_MUL then
-                      list.concat(taicpu.op_none(A_SEC))
-                    else
-                      list.concat(taicpu.op_none(A_SEV));
+                    list.concat(taicpu.op_none(A_SEC));
 
                     a_label(list,hl);
 
@@ -1919,6 +1918,41 @@ unit cgcpu;
                 cg.a_reg_dealloc(list,NR_R1);
 
                 list.concat(taicpu.op_reg_reg(A_MOV,dst,NR_R0));
+                cg.a_reg_dealloc(list,NR_R0);
+              end
+            else if (CPUAVR_HAS_MUL in cpu_capabilities[current_settings.cputype]) and
+               (op=OP_IMUL) then
+              begin
+                cg.a_reg_alloc(list,NR_R0);
+                cg.a_reg_alloc(list,NR_R1);
+                list.concat(taicpu.op_reg_reg(A_MULS,src1,src2));
+                list.concat(taicpu.op_reg_reg(A_MOV,dst,NR_R0));
+
+                // Check overflow
+                if check_overflow then
+                  begin
+                    current_asmdata.getjumplabel(no_overflow);
+
+                    list.concat(taicpu.op_reg_const(A_SBRC,NR_R0,7));
+                    list.concat(taicpu.op_reg(A_INC,NR_R1));
+                    list.concat(taicpu.op_reg(A_TST,NR_R1));
+
+                    ai:=Taicpu.Op_Sym(A_BRxx,no_overflow);
+                    ai.SetCondition(C_EQ);
+                    ai.is_jmp:=true;
+                    list.concat(ai);
+
+                    list.concat(taicpu.op_reg(A_CLR,NR_R1));
+
+                    a_call_name(list,'FPC_OVERFLOW',false);
+
+                    a_label(list,no_overflow);
+
+                    ovloc.loc:=LOC_VOID;
+                  end
+                else
+                  list.concat(taicpu.op_reg(A_CLR,NR_R1));
+                cg.a_reg_dealloc(list,NR_R1);
                 cg.a_reg_dealloc(list,NR_R0);
               end
             else
@@ -1957,52 +1991,66 @@ unit cgcpu;
                 (size=OS_16)) then
               begin
                 if check_overflow then
-                  list.concat(taicpu.op_none(A_CLT));
+                  begin
+                    current_asmdata.getjumplabel(hl);
+                    current_asmdata.getjumplabel(no_overflow);
+                  end;
                 cg.a_reg_alloc(list,NR_R0);
                 cg.a_reg_alloc(list,NR_R1);
                 list.concat(taicpu.op_reg_reg(A_MUL,src2,src1));
                 emit_mov(list,dst,NR_R0);
                 emit_mov(list,GetNextReg(dst),NR_R1);
                 list.concat(taicpu.op_reg_reg(A_MUL,GetNextReg(src1),src2));
-                perform_r1_check();
+                perform_r1_check(hl);
                 list.concat(taicpu.op_reg_reg(A_ADD,GetNextReg(dst),NR_R0));
-                perform_ovf_check();
+                perform_ovf_check(hl);
                 list.concat(taicpu.op_reg_reg(A_MUL,src1,GetNextReg(src2)));
-                perform_r1_check();
+                perform_r1_check(hl);
                 list.concat(taicpu.op_reg_reg(A_ADD,GetNextReg(dst),NR_R0));
-                perform_ovf_check();
+                perform_ovf_check(hl);
+
+                if check_overflow then
+                  begin
+                    list.concat(taicpu.op_reg_reg(A_MUL,GetNextReg(src1),GetNextReg(src2)));
+                    perform_r1_check(hl,NR_R0);
+                  end;
+
                 cg.a_reg_dealloc(list,NR_R0);
                 list.concat(taicpu.op_reg(A_CLR,NR_R1));
-                cg.a_reg_dealloc(list,NR_R1);
 
                 if check_overflow then
                   begin
                     {
-                      CLC
-                      CLV
-                      BRTC .L1
+                      CLV/CLC
+                      JMP no_overflow
+                    .hl:
+                      CLR R1
                       SEV/SEC
-                    .L1:
+                    .no_overflow:
                     }
-                    list.concat(taicpu.op_none(A_CLC));
-                    list.concat(taicpu.op_none(A_CLV));
 
-                    current_asmdata.getjumplabel(hl);
+                    if op=OP_MUL then
+                      list.concat(taicpu.op_none(A_CLC))
+                    else
+                      list.concat(taicpu.op_none(A_CLV));
 
-                    ai:=Taicpu.Op_Sym(A_BRxx,hl);
-                    ai.SetCondition(C_TC);
-                    ai.is_jmp:=true;
-                    list.concat(ai);
+                    a_jmp_always(list,no_overflow);
+
+                    a_label(list,hl);
+
+                    list.concat(taicpu.op_reg(A_CLR,NR_R1));
 
                     if op=OP_MUL then
                       list.concat(taicpu.op_none(A_SEC))
                     else
                       list.concat(taicpu.op_none(A_SEV));
 
-                    a_label(list,hl);
+                    a_label(list,no_overflow);
 
                     ovloc.loc:=LOC_FLAGS;
                   end;
+
+                cg.a_reg_dealloc(list,NR_R1);
               end
             else
               begin
@@ -2048,7 +2096,8 @@ unit cgcpu;
       begin
         if current_procinfo.procdef.isempty then
           exit;
-        if po_interrupt in current_procinfo.procdef.procoptions then
+        if (po_interrupt in current_procinfo.procdef.procoptions) and
+          (not nostackframe) then
           begin
             { check if the framepointer is actually used, this is done here because
               we have to know the size of the locals (must be 0), avr does not know
@@ -2147,7 +2196,8 @@ unit cgcpu;
           exit;
         if po_interrupt in current_procinfo.procdef.procoptions then
           begin
-            if not(current_procinfo.procdef.isempty) then
+            if not(current_procinfo.procdef.isempty) and
+              (not nostackframe) then
               begin
                 regs:=rg[R_INTREGISTER].used_in_proc;
                 if current_procinfo.framepointer<>NR_NO then

@@ -13,22 +13,41 @@ type
 
   TTestResolveGenerics = Class(TCustomTestResolver)
   Published
+    // generic functions
     procedure TestGen_GenericFunction; // ToDo
+
+    // generic types
     procedure TestGen_MissingTemplateFail;
+    procedure TestGen_VarTypeWithoutSpecializeFail;
     procedure TestGen_ConstraintStringFail;
     procedure TestGen_ConstraintMultiClassFail;
     procedure TestGen_ConstraintRecordExpectedFail;
+    // ToDo: constraints mismatch: TAnt<T:record>; TBird<T:Class> = record v: TAnt<T> end   Fail
     // ToDo: constraint keyword record
     // ToDo: constraint keyword class, constructor, class+constructor
-    // ToDo: constraint Unit2.TBird
-    // ToDo: constraint Unit2.TGen<word>
+    // ToDo: constraint T:Unit2.TBird
+    // ToDo: constraint T:Unit2.TGen<word>
     procedure TestGen_GenericNotFoundFail;
     procedure TestGen_RecordLocalNameDuplicateFail;
     procedure TestGen_Record;
+    procedure TestGen_RecordDelphi;
+    // ToDo: enums within generic
+    // ToDo: procedure TestGen_SpecializeArg_ArrayOf;  type TBird = specialize<array of word>
+    // ToDo: unitname.specialize TBird<word>.specialize
+    procedure TestGen_Class;
+    //procedure TestGen_ClassDelphi;
     // ToDo: generic class
+    // ToDo: generic class forward (constraints must be repeated)
+    // ToDo: generic class forward  constraints mismatch fail
+    // ToDo: generic class overload
+    // ToDo: ancestor cycle: TBird<T> = class(TBird<word>) fail
+    // ToDo: class-of
+    // ToDo: UnitA.impl uses UnitB.intf uses UnitA.intf, UnitB has specialize of UnitA
     // ToDo: generic interface
     // ToDo: generic array
     // ToDo: generic procedure type
+    // ToDo: pointer of generic
+    // ToDo: generic helpers
   end;
 
 implementation
@@ -60,6 +79,18 @@ begin
   'begin',
   '']);
   CheckParserException('Expected "Identifier"',nParserExpectTokenError);
+end;
+
+procedure TTestResolveGenerics.TestGen_VarTypeWithoutSpecializeFail;
+begin
+  StartProgram(false);
+  Add([
+  'type generic TBird<T> = record end;',
+  'var b: TBird;',
+  'begin',
+  '']);
+  CheckResolverException('Generics without specialization cannot be used as a type for a variable',
+    nGenericsWithoutSpecializationAsType);
 end;
 
 procedure TTestResolveGenerics.TestGen_ConstraintStringFail;
@@ -137,7 +168,6 @@ end;
 
 procedure TTestResolveGenerics.TestGen_Record;
 begin
-  exit; // ToDo
   StartProgram(false);
   Add([
   '{$mode objfpc}',
@@ -151,6 +181,45 @@ begin
   '  {=Typ}w: T;',
   'begin',
   '  r.v:=w;',
+  '']);
+  ParseProgram;
+end;
+
+procedure TTestResolveGenerics.TestGen_RecordDelphi;
+begin
+  StartProgram(false);
+  Add([
+  '{$mode delphi}',
+  'type',
+  '  {#Typ}T = word;',
+  '  TRec<{#Templ}T> = record',
+  '    {=Templ}v: T;',
+  '  end;',
+  'var',
+  '  r: TRec<word>;',
+  '  {=Typ}w: T;',
+  'begin',
+  '  r.v:=w;',
+  '']);
+  ParseProgram;
+end;
+
+procedure TTestResolveGenerics.TestGen_Class;
+begin
+  exit;
+  StartProgram(false);
+  Add([
+  '{$mode objfpc}',
+  'type',
+  '  {#Typ}T = word;',
+  '  generic TBird<{#Templ}T> = class',
+  '    {=Templ}v: T;',
+  '  end;',
+  'var',
+  '  b: specialize TBird<word>;',
+  '  {=Typ}w: T;',
+  'begin',
+  '  b.v:=w;',
   '']);
   ParseProgram;
 end;

@@ -1906,7 +1906,7 @@ var
   i: Integer;
 begin
   for i:=0 to length(Constraints)-1 do
-    Constraints[i].Release;
+    Constraints[i].Release{$IFDEF CheckPasTreeRefCount}('CreateElement'){$ENDIF};
   Constraints:=nil;
   inherited Destroy;
 end;
@@ -2039,7 +2039,7 @@ destructor TInlineSpecializeExpr.Destroy;
 var
   i: Integer;
 begin
-  ReleaseAndNil(TPasElement(NameExpr));
+  ReleaseAndNil(TPasElement(NameExpr){$IFDEF CheckPasTreeRefCount},'CreateElement'{$ENDIF});
   for i:=0 to Params.Count-1 do
     TPasElement(Params[i]).Release{$IFDEF CheckPasTreeRefCount}('TInlineSpecializeExpr.Params'){$ENDIF};
   FreeAndNil(Params);
@@ -3045,7 +3045,7 @@ begin
     begin
     Child:=TPasElement(Declarations[i]);
     Child.Parent:=nil;
-    Child.Release{$IFDEF CheckPasTreeRefCount}('TPasDeclarations.Childs'){$ENDIF};
+    Child.Release{$IFDEF CheckPasTreeRefCount}('TPasDeclarations.Children'){$ENDIF};
     end;
   FreeAndNil(Declarations);
 
