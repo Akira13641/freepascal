@@ -3101,8 +3101,8 @@ type
             lineendingtype:=tlineendingtype(tokenreadenum(sizeof(tlineendingtype)));
             whitespacetrimcount:=tokenreadword;
             whitespacetrimauto:=boolean(tokenreadbyte);
-            endpos:=replaytokenbuf.pos;
-            if endpos-startpos<>expected_size then
+           endpos:=replaytokenbuf.pos;
+           if endpos-startpos<>expected_size then
              Comment(V_Error,'Wrong size of Settings read-in');
          end;
      end;
