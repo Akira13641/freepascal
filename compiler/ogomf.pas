@@ -510,9 +510,9 @@ interface
         property Size: QWord read GetSize;
       end;
 
-      { TNewExeResidentNameTableEntry }
+      { TNewExeExportNameTableEntry }
 
-      TNewExeResidentNameTableEntry = class(TFPHashObject)
+      TNewExeExportNameTableEntry = class(TFPHashObject)
       private
         FOrdinalNr: Word;
       public
@@ -521,9 +521,9 @@ interface
         property OrdinalNr: Word read FOrdinalNr write FOrdinalNr;
       end;
 
-      { TNewExeResidentNameTable }
+      { TNewExeExportNameTable }
 
-      TNewExeResidentNameTable = class(TFPHashObjectList)
+      TNewExeExportNameTable = class(TFPHashObjectList)
       private
         function GetSize: QWord;
       public
@@ -581,13 +581,15 @@ interface
 
       TNewExeEntryPoint = class
       private
-        FFlags: TNewExeEntryPointFlag;
+        FFlags: TNewExeEntryPointFlags;
         FSegment: Byte;
         FOffset: Word;
+        function GetFlagsByte: Byte;
       public
-        property Flags: TNewExeEntryPointFlag read FFlags write FFlags;
+        property Flags: TNewExeEntryPointFlags read FFlags write FFlags;
         property Segment: Byte read FSegment write FSegment;
         property Offset: Word read FOffset write FOffset;
+        property FlagsByte: Byte read GetFlagsByte;
       end;
 
       { TNewExeEntryTable }
@@ -600,6 +602,8 @@ interface
         function GetItems(i: Integer): TNewExeEntryPoint;
         function GetSize: QWord;
         procedure SetItems(i: Integer; AValue: TNewExeEntryPoint);
+        function CanBeInSameBundle(i,j:Integer):Boolean;
+        function BundleSize(StartingElement:Integer): Byte;
       public
         destructor Destroy;override;
 
@@ -665,7 +669,8 @@ interface
         FImports: TFPHashObjectList;
         FCurrExeMetaSec: TNewExeMetaSection;
         FResourceTable: TNewExeResourceTable;
-        FResidentNameTable: TNewExeResidentNameTable;
+        FResidentNameTable: TNewExeExportNameTable;
+        FNonresidentNameTable: TNewExeExportNameTable;
         FModuleReferenceTable: TNewExeModuleReferenceTable;
         FImportedNameTable: TNewExeImportedNameTable;
         FEntryTable: TNewExeEntryTable;
@@ -676,10 +681,13 @@ interface
         procedure FillImportedNameAndModuleReferenceTable;
         function GetHighestExportSymbolOrdinal: Word;
         procedure AssignOrdinalsToAllExportSymbols;
+        procedure AddEntryPointsForAllExportSymbols;
+        procedure AddExportedNames;
         property Header: TNewExeHeader read FHeader;
         property CurrExeMetaSec: TNewExeMetaSection read FCurrExeMetaSec write FCurrExeMetaSec;
         property ResourceTable: TNewExeResourceTable read FResourceTable;
-        property ResidentNameTable: TNewExeResidentNameTable read FResidentNameTable;
+        property ResidentNameTable: TNewExeExportNameTable read FResidentNameTable;
+        property NonresidentNameTable: TNewExeExportNameTable read FNonresidentNameTable;
         property ModuleReferenceTable: TNewExeModuleReferenceTable read FModuleReferenceTable;
         property ImportedNameTable: TNewExeImportedNameTable read FImportedNameTable;
         property EntryTable: TNewExeEntryTable read FEntryTable;
@@ -1175,6 +1183,7 @@ implementation
         with s do
           begin
             ExportByOrdinal:=aExportByOrdinal;
+            ResidentName:=aResidentName;
             NoData:=aNoData;
             ParmCount:=aParmCount;
             ExportedName:=aExportedName;
@@ -3840,20 +3849,20 @@ cleanup:
       end;
 
 {****************************************************************************
-                       TNewExeResidentNameTableEntry
+                       TNewExeExportNameTableEntry
 ****************************************************************************}
 
-    constructor TNewExeResidentNameTableEntry.Create(HashObjectList:TFPHashObjectList;const s:TSymStr;OrdNr:Word);
+    constructor TNewExeExportNameTableEntry.Create(HashObjectList:TFPHashObjectList;const s:TSymStr;OrdNr:Word);
       begin
         inherited Create(HashObjectList,s);
         OrdinalNr:=OrdNr;
       end;
 
 {****************************************************************************
-                         TNewExeResidentNameTable
+                         TNewExeExportNameTable
 ****************************************************************************}
 
-    function TNewExeResidentNameTable.GetSize: QWord;
+    function TNewExeExportNameTable.GetSize: QWord;
       var
         i: Integer;
       begin
@@ -3861,19 +3870,19 @@ cleanup:
         Result:=1;
         { each entry is 3 bytes, plus the length of the name }
         for i:=0 to Count-1 do
-          Inc(Result,3+Length(TNewExeResidentNameTableEntry(Items[i]).Name));
+          Inc(Result,3+Length(TNewExeExportNameTableEntry(Items[i]).Name));
       end;
 
-    procedure TNewExeResidentNameTable.WriteTo(aWriter: TObjectWriter);
+    procedure TNewExeExportNameTable.WriteTo(aWriter: TObjectWriter);
       var
         i: Integer;
-        rn: TNewExeResidentNameTableEntry;
+        rn: TNewExeExportNameTableEntry;
         slen: Byte;
         OrdNrBuf: array [0..1] of Byte;
       begin
         for i:=0 to Count-1 do
           begin
-            rn:=TNewExeResidentNameTableEntry(Items[i]);
+            rn:=TNewExeExportNameTableEntry(Items[i]);
             slen:=Length(rn.Name);
             if slen=0 then
               internalerror(2019080801);
@@ -3982,13 +3991,46 @@ cleanup:
       end;
 
 {****************************************************************************
+                            TNewExeEntryPoint
+****************************************************************************}
+
+    function TNewExeEntryPoint.GetFlagsByte: Byte;
+      begin
+        Result:=0;
+        if neepfExported in Flags then
+          Result:=Result or 1;
+        if neepfSingleData in Flags then
+          Result:=Result or 2;
+      end;
+
+{****************************************************************************
                             TNewExeEntryTable
 ****************************************************************************}
 
     function TNewExeEntryTable.GetSize: QWord;
+      var
+        CurBundleStart, i: Integer;
+        CurBundleSize: Byte;
+        cp: TNewExeEntryPoint;
       begin
-        { todo: implement }
         Result:=0;
+        CurBundleStart:=1;
+        repeat
+          CurBundleSize:=BundleSize(CurBundleStart);
+          Inc(Result,2);
+          if CurBundleSize>0 then
+            begin
+              if Items[CurBundleStart]=nil then
+                { a bundle of null entries }
+              else if neepfMovableSegment in Items[CurBundleStart].Flags then
+                { a bundle of movable segment records }
+                Inc(Result,6*CurBundleSize)
+              else
+                { a bundle of fixed segment records }
+                Inc(Result,3*CurBundleSize);
+            end;
+          Inc(CurBundleStart,CurBundleSize);
+        until CurBundleSize=0;
       end;
 
     procedure TNewExeEntryTable.SetItems(i: Integer; AValue: TNewExeEntryPoint);
@@ -3996,6 +4038,30 @@ cleanup:
         if (i<1) or (i>Length(FItems)) then
           internalerror(2019081002);
         FItems[i-1]:=AValue;
+      end;
+
+    function TNewExeEntryTable.CanBeInSameBundle(i, j: Integer): Boolean;
+      begin
+        if (Items[i]=nil) or (Items[j]=nil) then
+          Result:=(Items[i]=nil) and (Items[j]=nil)
+        else if not (neepfMovableSegment in Items[i].Flags) and
+                not (neepfMovableSegment in Items[j].Flags) then
+          Result:=Items[i].Segment=Items[j].Segment
+        else
+          Result:=(neepfMovableSegment in Items[i].Flags)=
+                  (neepfMovableSegment in Items[j].Flags);
+      end;
+
+    function TNewExeEntryTable.BundleSize(StartingElement:Integer): Byte;
+      begin
+        if StartingElement>Count then
+          Result:=0
+        else
+          begin
+            Result:=1;
+            while (Result<255) and ((StartingElement+Result)<=Count) and CanBeInSameBundle(StartingElement,StartingElement+Result) do
+              Inc(Result);
+          end;
       end;
 
     function TNewExeEntryTable.GetCount: Word;
@@ -4020,8 +4086,63 @@ cleanup:
       end;
 
     procedure TNewExeEntryTable.WriteTo(aWriter: TObjectWriter);
+      var
+        CurBundleStart, i: Integer;
+        CurBundleSize: Byte;
+        buf: array [0..5] of Byte;
+        cp: TNewExeEntryPoint;
       begin
-        { todo: implement }
+        CurBundleStart:=1;
+        repeat
+          CurBundleSize:=BundleSize(CurBundleStart);
+          aWriter.write(CurBundleSize,1);
+          if CurBundleSize>0 then
+            begin
+              if Items[CurBundleStart]=nil then
+                begin
+                  { a bundle of null entries }
+                  buf[0]:=0;
+                  aWriter.write(buf[0],1);
+                end
+              else if neepfMovableSegment in Items[CurBundleStart].Flags then
+                begin
+                  { a bundle of movable segment records }
+                  buf[0]:=$ff;
+                  aWriter.write(buf[0],1);
+                  for i:=CurBundleStart to CurBundleStart+CurBundleSize-1 do
+                    begin
+                      cp:=Items[i];
+                      buf[0]:=cp.FlagsByte;
+                      buf[1]:=$CD;  { INT 3Fh instruction }
+                      buf[2]:=$3F;
+                      buf[3]:=Byte(cp.Segment);
+                      buf[4]:=Byte(cp.Offset);
+                      buf[5]:=Byte(cp.Offset shr 8);
+                      aWriter.write(buf[0],6);
+                    end;
+                end
+              else
+                begin
+                  { a bundle of fixed segment records }
+                  buf[0]:=Items[CurBundleStart].Segment;
+                  aWriter.write(buf[0],1);
+                  for i:=CurBundleStart to CurBundleStart+CurBundleSize-1 do
+                    begin
+                      cp:=Items[i];
+                      buf[0]:=cp.FlagsByte;
+                      buf[1]:=Byte(cp.Offset);
+                      buf[2]:=Byte(cp.Offset shr 8);
+                      aWriter.write(buf[0],3);
+                    end;
+                end;
+            end;
+          Inc(CurBundleStart,CurBundleSize);
+        until CurBundleSize=0;
+        { finish the end marker - a null bundle of 0 entries - must be 2 zero
+          bytes. The first one was already written by the loop, time to add the
+          second one. }
+        buf[0]:=0;
+        aWriter.write(buf[0],1);
       end;
 
     procedure TNewExeEntryTable.GrowTo(aNewCount: Word);
@@ -4177,11 +4298,20 @@ cleanup:
       var
         i: Integer;
       begin
+        if IsSharedLibrary then
+          Header.Flags:=Header.Flags+[nehfIsDLL,nehfSingleData]-[nehfMultipleData];
+
         { all exported symbols must have an ordinal }
         AssignOrdinalsToAllExportSymbols;
 
+        AddEntryPointsForAllExportSymbols;
+
         { the first entry in the resident-name table is the module name }
-        TNewExeResidentNameTableEntry.Create(ResidentNameTable,ExtractModuleName(current_module.exefilename),0);
+        TNewExeExportNameTableEntry.Create(ResidentNameTable,ExtractModuleName(current_module.exefilename),0);
+        { the first entry in the nonresident-name table is the module description }
+        TNewExeExportNameTableEntry.Create(NonresidentNameTable,description,0);
+        { add all symbols, exported by name to the resident and nonresident-name tables }
+        AddExportedNames;
 
         FillImportedNameAndModuleReferenceTable;
         ImportedNameTable.CalcTableOffsets;
@@ -4203,6 +4333,8 @@ cleanup:
         Header.ImportedNameTableStart:=Header.ModuleReferenceTableStart+ModuleReferenceTable.Size;
         Header.EntryTableOffset:=Header.ImportedNameTableStart+ImportedNameTable.Size;
         Header.EntryTableLength:=EntryTable.Size;
+        Header.NonresidentNameTableStart:=Header.EntryTableOffset+Header.EntryTableLength+Length(Header.MsDosStub);
+        Header.NonresidentNameTableLength:=NonresidentNameTable.Size;
 
         Header.WriteTo(FWriter);
 
@@ -4214,6 +4346,7 @@ cleanup:
         ModuleReferenceTable.WriteTo(FWriter,ImportedNameTable);
         ImportedNameTable.WriteTo(FWriter);
         EntryTable.WriteTo(FWriter);
+        NonresidentNameTable.WriteTo(FWriter);
 
         { todo: write the rest of the file as well }
 
@@ -4299,6 +4432,70 @@ cleanup:
           end;
       end;
 
+    procedure TNewExeOutput.AddEntryPointsForAllExportSymbols;
+      var
+        LastOrdinal: Word;
+        i, j: Integer;
+        ObjData: TOmfObjData;
+        sym: TOmfObjExportedSymbol;
+        ent: TNewExeEntryPoint;
+        exesym: TExeSymbol;
+        sec: TNewExeSection;
+      begin
+        LastOrdinal:=GetHighestExportSymbolOrdinal;
+        EntryTable.GrowTo(LastOrdinal);
+        for i:=0 to ObjDataList.Count-1 do
+          begin
+            ObjData:=TOmfObjData(ObjDataList[i]);
+            for j:=0 to ObjData.ExportedSymbolList.Count-1 do
+              begin
+                sym:=TOmfObjExportedSymbol(ObjData.ExportedSymbolList[j]);
+                { all exports must have an ordinal at this point }
+                if not sym.ExportByOrdinal then
+                  internalerror(2019081004);
+                { check for duplicated ordinals }
+                if Assigned(EntryTable[sym.ExportOrdinal]) then
+                  internalerror(2019081005);
+                ent:=TNewExeEntryPoint.Create;
+                EntryTable[sym.ExportOrdinal]:=ent;
+                exesym:=TExeSymbol(ExeSymbolList.Find(sym.InternalName));
+                if not Assigned(exesym) then
+                  internalerror(2019081006);
+                ent.Flags:=[neepfExported];
+                if IsSharedLibrary then
+                  ent.Flags:=ent.Flags+[neepfSingleData];
+                ent.Offset:=exesym.ObjSymbol.address;
+                sec:=TNewExeSection(exesym.ObjSymbol.objsection.ExeSection);
+                ent.Segment:=sec.MemBasePos;
+                if nesfMovable in sec.NewExeSegmentFlags then
+                  ent.Flags:=ent.Flags+[neepfMovableSegment];
+              end;
+          end;
+      end;
+
+    procedure TNewExeOutput.AddExportedNames;
+      var
+        i, j: Integer;
+        ObjData: TOmfObjData;
+        sym: TOmfObjExportedSymbol;
+      begin
+        for i:=0 to ObjDataList.Count-1 do
+          begin
+            ObjData:=TOmfObjData(ObjDataList[i]);
+            for j:=0 to ObjData.ExportedSymbolList.Count-1 do
+              begin
+                sym:=TOmfObjExportedSymbol(ObjData.ExportedSymbolList[j]);
+                { all exports must have an ordinal at this point }
+                if not sym.ExportByOrdinal then
+                  internalerror(2019081007);
+                if sym.ResidentName then
+                  TNewExeExportNameTableEntry.Create(ResidentNameTable,sym.ExportedName,sym.ExportOrdinal)
+                else
+                  TNewExeExportNameTableEntry.Create(NonresidentNameTable,sym.ExportedName,sym.ExportOrdinal);
+              end;
+          end;
+      end;
+
     procedure TNewExeOutput.DoRelocationFixup(objsec: TObjSection);
       begin
         {todo}
@@ -4335,7 +4532,8 @@ cleanup:
         MaxMemPos:=$FFFFFFFF;
         CurrExeMetaSec:=nemsNone;
         FResourceTable:=TNewExeResourceTable.Create;
-        FResidentNameTable:=TNewExeResidentNameTable.Create;
+        FResidentNameTable:=TNewExeExportNameTable.Create;
+        FNonresidentNameTable:=TNewExeExportNameTable.Create;
         FModuleReferenceTable:=TNewExeModuleReferenceTable.Create;
         FImportedNameTable:=TNewExeImportedNameTable.Create;
         FEntryTable:=TNewExeEntryTable.Create;
@@ -4346,6 +4544,7 @@ cleanup:
         FEntryTable.Free;
         FImportedNameTable.Free;
         FModuleReferenceTable.Free;
+        FNonresidentNameTable.Free;
         FResidentNameTable.Free;
         FResourceTable.Free;
         FHeader.Free;
