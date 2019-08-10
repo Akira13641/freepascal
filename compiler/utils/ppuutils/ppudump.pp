@@ -2078,6 +2078,9 @@ var
              controllertype:=tcontrollertype(tokenreadenum(sizeof(tcontrollertype)))
             else
              ControllerType:=ct_none;
+            lineendingtype:=tlineendingtype(tokenreadenum(sizeof(tlineendingtype)));
+            whitespacetrimcount:=gettokenbufword;
+            whitespacetrimauto:=boolean(gettokenbufbyte);
 {$POP}
            endpos:=tbi;
            if endpos-startpos<>expected_size then
@@ -2363,7 +2366,8 @@ const
          'm_array_operators',     { use Delphi compatible array operators instead of custom ones ("+") }
          'm_multi_helpers',       { helpers can appear in multiple scopes simultaneously }
          'm_array2dynarray',      { regular arrays can be implicitly converted to dynamic arrays }
-         'm_prefixed_attributes'  { enable attributes that are defined before the type they belong to }
+         'm_prefixed_attributes', { enable attributes that are defined before the type they belong to }
+         'm_multiline_strings'    { multi-line strings denoted with '`' are enabled and valid }
        );
        { optimizer }
        optimizerswitchname : array[toptimizerswitch] of string[50] =
