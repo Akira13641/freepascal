@@ -1033,10 +1033,10 @@ unit scandir;
         if not (m_multiline_strings in current_settings.modeswitches) then
           Message1(scan_e_illegal_directive,'MULTILINESTRINGTRIMLEFT');
         current_scanner.skipspace;
-        if (c in ['1'..'9']) then
+        if (c in ['0'..'9']) then
           begin
             count:=current_scanner.readval;
-            if (count<0) or (count>65535) then
+            if (count<0) or (count>high(word)) then
               Message(scan_e_trimcount_out_of_range)
             else
               begin
@@ -1049,7 +1049,7 @@ unit scandir;
             s:=current_scanner.readid;
             if s='ALL' then
               begin
-                current_settings.whitespacetrimcount:=65535;
+                current_settings.whitespacetrimcount:=high(word);
                 current_settings.whitespacetrimauto:=false;
               end
             else if s='AUTO' then
