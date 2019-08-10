@@ -3179,9 +3179,9 @@ type
             if ControllerSupport then
               tokenwriteenum(controllertype,sizeof(tcontrollertype));
 {$POP}
-           tokenwriteenum(lineendingtype,sizeof(tlineendingtype));
-           tokenwriteword(whitespacetrimcount);
-           tokenwritebyte(byte(whitespacetrimauto));
+            tokenwriteenum(lineendingtype,sizeof(tlineendingtype));
+            tokenwriteword(whitespacetrimcount);
+            tokenwritebyte(byte(whitespacetrimauto));
            endpos:=recordtokenbuf.pos;
            size:=endpos-startpos;
            recordtokenbuf.seek(sizepos);
