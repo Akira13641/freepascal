@@ -38,31 +38,41 @@ type
     procedure TestGen_RecordDelphi;
     procedure TestGen_RecordNestedSpecialized;
     procedure TestGen_Record_SpecializeSelfInsideFail;
-    // ToDo: enums within generic
     procedure TestGen_RecordAnoArray;
-    // ToDo: procedure TestGen_SpecializeArg_ArrayOf;  type TBird = specialize<array of word>
     // ToDo: unitname.specialize TBird<word>.specialize
+    procedure TestGen_RecordNestedSpecialize;
 
     // generic class
     procedure TestGen_Class;
     procedure TestGen_ClassDelphi;
     procedure TestGen_ClassForward;
+    procedure TestGen_ClassForwardConstraints;
+    procedure TestGen_ClassForwardConstraintNameMismatchFail;
+    procedure TestGen_ClassForwardConstraintKeywordMismatchFail;
+    procedure TestGen_ClassForwardConstraintTypeMismatchFail;
     procedure TestGen_Class_Method;
     procedure TestGen_Class_SpecializeSelfInside;
-    // ToDo: generic class forward (constraints must be repeated)
-    // ToDo: generic class forward  constraints mismatch fail
     // ToDo: generic class overload <T> <S,T>
     procedure TestGen_Class_GenAncestor;
     procedure TestGen_Class_AncestorSelfFail;
-    // ToDo: ancestor cycle: TBird<T> = class(TBird<word>) fail
     // ToDo: class-of
     // ToDo: UnitA.impl uses UnitB.intf uses UnitA.intf, UnitB has specialize of UnitA
+    procedure TestGen_Class_NestedType;
+    procedure TestGen_Class_NestedRecord;
+    procedure TestGen_Class_NestedClass; // ToDo
+    procedure TestGen_Class_Enums_NotPropagating;
+    procedure TestGen_Class_List;
+
+    // generic external class
+    procedure TestGen_ExtClass_Array;
 
     // ToDo: generic interface
 
-    // ToDo: generic array
+    // generic array
+    procedure TestGen_Array;
 
-    // ToDo: generic procedure type
+    // generic procedure type
+    procedure TestGen_ProcType;
 
     // ToDo: pointer of generic
 
@@ -75,15 +85,14 @@ type
     // generic statements
     procedure TestGen_LocalVar;
     procedure TestGen_Statements;
-    procedure TestGen_ForLoop;
+    procedure TestGen_InlineSpecializeExpr;
     // ToDo: for-in
-    // ToDo: if
-    // ToDo: case
-    // ToDo: while, repeat
-    // ToDo: try finally/except
+    procedure TestGen_TryExcept;
     // ToDo: call
     // ToDo: dot
     // ToDo: is as
+    // ToDo: typecast
+    // ToTo: nested proc
   end;
 
 implementation
@@ -161,7 +170,7 @@ begin
   'end;',
   'begin',
   '']);
-  CheckResolverException('"string" is not a valid constraint',
+  CheckResolverException('"String" is not a valid constraint',
     nXIsNotAValidConstraint);
 end;
 
@@ -238,7 +247,7 @@ begin
   '  generic TBird<T:TArr> = record v: T; end;',
   'begin',
   '']);
-  CheckResolverException('"TArr" is not a valid constraint',
+  CheckResolverException('"array of Word" is not a valid constraint',
     nXIsNotAValidConstraint);
 end;
 
@@ -344,8 +353,26 @@ begin
   '{$mode objfpc}',
   'type',
   '  generic TBird<T> = record v: T; end;',
-  'var b: specialize TBird<array of word>;',
+  'var',
+  '  a: specialize TBird<array of word>;',
+  '  b: specialize TBird<array of word>;',
   'begin',
+  '  a:=b;',
+  '']);
+  ParseProgram;
+end;
+
+procedure TTestResolveGenerics.TestGen_RecordNestedSpecialize;
+begin
+  StartProgram(false);
+  Add([
+  '{$mode objfpc}',
+  'type',
+  '  generic TBird<T> = record v: T; end;',
+  'var',
+  '  a: specialize TBird<specialize TBird<word>>;',
+  'begin',
+  '  a.v.v:=3;',
   '']);
   ParseProgram;
 end;
@@ -407,13 +434,93 @@ begin
   '    r: TRec;',
   '  end;',
   'var',
-  '  s: specialize TRec;',
+  '  s: TRec;',
   '  {=Typ}w: T;',
   'begin',
   '  s.b.v:=w;',
   '  s.b.r:=s;',
   '']);
   ParseProgram;
+end;
+
+procedure TTestResolveGenerics.TestGen_ClassForwardConstraints;
+begin
+  StartProgram(false);
+  Add([
+  '{$mode objfpc}',
+  'type',
+  '  TObject = class end;',
+  '  TAnt = class end;',
+  '  generic TBird<T: class; U; V: TAnt> = class;',
+  '  TRec = record',
+  '    b: specialize TBird<TAnt,word,TAnt>;',
+  '  end;',
+  '  generic TBird<T: class; U; V: TAnt> = class',
+  '    i: U;',
+  '    r: TRec;',
+  '  end;',
+  'var',
+  '  s: TRec;',
+  '  w: word;',
+  'begin',
+  '  s.b.i:=w;',
+  '  s.b.r:=s;',
+  '']);
+  ParseProgram;
+end;
+
+procedure TTestResolveGenerics.TestGen_ClassForwardConstraintNameMismatchFail;
+begin
+  StartProgram(false);
+  Add([
+  '{$mode objfpc}',
+  'type',
+  '  TObject = class end;',
+  '  generic TBird<T> = class;',
+  '  generic TBird<U> = class',
+  '    i: U;',
+  '  end;',
+  'begin',
+  '']);
+  CheckResolverException('Declaration of "U" differs from previous declaration at afile.pp(5,18)',
+    nDeclOfXDiffersFromPrevAtY);
+end;
+
+procedure TTestResolveGenerics.
+  TestGen_ClassForwardConstraintKeywordMismatchFail;
+begin
+  StartProgram(false);
+  Add([
+  '{$mode objfpc}',
+  'type',
+  '  TObject = class end;',
+  '  generic TBird<T: class, constructor> = class;',
+  '  generic TBird<U: class> = class',
+  '    i: U;',
+  '  end;',
+  'begin',
+  '']);
+  CheckResolverException('Declaration of "U" differs from previous declaration at afile.pp(5,18)',
+    nDeclOfXDiffersFromPrevAtY);
+end;
+
+procedure TTestResolveGenerics.TestGen_ClassForwardConstraintTypeMismatchFail;
+begin
+  StartProgram(false);
+  Add([
+  '{$mode objfpc}',
+  'type',
+  '  TObject = class end;',
+  '  TAnt = class end;',
+  '  TFish = class end;',
+  '  generic TBird<T: TAnt> = class;',
+  '  generic TBird<T: TFish> = class',
+  '    i: U;',
+  '  end;',
+  'begin',
+  '']);
+  CheckResolverException('Declaration of "T" differs from previous declaration at afile.pp(7,20)',
+    nDeclOfXDiffersFromPrevAtY);
 end;
 
 procedure TTestResolveGenerics.TestGen_Class_Method;
@@ -478,6 +585,7 @@ begin
   'var',
   '  e: specialize TEagle<word>;',
   'begin',
+  '  e.i:=e.j;',
   '']);
   ParseProgram;
 end;
@@ -497,6 +605,243 @@ begin
   'begin',
   '']);
   CheckResolverException('type "TBird" is not yet completely defined',nTypeXIsNotYetCompletelyDefined);
+end;
+
+procedure TTestResolveGenerics.TestGen_Class_NestedType;
+begin
+  StartProgram(false);
+  Add([
+  '{$mode objfpc}',
+  'type',
+  '  TObject = class end;',
+  '  generic TBird<T> = class',
+  '  public type',
+  '    TArrayEvent = reference to procedure(El: T);',
+  '  public',
+  '    p: TArrayEvent;',
+  '  end;',
+  '  TBirdWord = specialize TBird<word>;',
+  'var',
+  '  b: TBirdWord;',
+  'begin',
+  '  b.p:=procedure(El: word) begin end;']);
+  ParseProgram;
+end;
+
+procedure TTestResolveGenerics.TestGen_Class_NestedRecord;
+begin
+  StartProgram(false);
+  Add([
+  '{$mode objfpc}',
+  '{$modeswitch advancedrecords}',
+  'type',
+  '  TObject = class end;',
+  '  generic TBird<T> = class',
+  '  public type TWing = record',
+  '      s: T;',
+  '      function GetIt: T;',
+  '    end;',
+  '  public',
+  '    w: TWing;',
+  '  end;',
+  '  TBirdWord = specialize TBird<word>;',
+  'function TBird.TWing.GetIt: T;',
+  'begin',
+  'end;',
+  'var',
+  '  b: TBirdWord;',
+  '  i: word;',
+  'begin',
+  '  b.w.s:=i;',
+  '  i:=b.w.GetIt;',
+  '']);
+  ParseProgram;
+end;
+
+procedure TTestResolveGenerics.TestGen_Class_NestedClass;
+begin
+  StartProgram(false);
+  Add([
+  '{$mode objfpc}',
+  'type',
+  '  TObject = class end;',
+  '  generic TBird<T> = class',
+  '  public type TWing = class',
+  '      s: T;',
+  '      function GetIt: T;',
+  '    end;',
+  '  public',
+  '    w: TWing;',
+  '  end;',
+  '  TBirdWord = specialize TBird<word>;',
+  'function TBird.TWing.GetIt: T;',
+  'begin',
+  'end;',
+  'var',
+  '  b: TBirdWord;',
+  '  i: word;',
+  'begin',
+  '  b.w.s:=3;',
+  '  i:=b.w.GetIt;',
+  '']);
+  ParseProgram;
+end;
+
+procedure TTestResolveGenerics.TestGen_Class_Enums_NotPropagating;
+begin
+  StartProgram(false);
+  Add([
+  '{$mode objfpc}',
+  'type',
+  '  TObject = class end;',
+  '  generic TBird<T> = class',
+  '  public type',
+  '    TEnum = (red, blue);',
+  '  const',
+  '    e = blue;',
+  '  end;',
+  'const',
+  '  r = red;',
+  'begin']);
+  CheckResolverException('identifier not found "red"',nIdentifierNotFound);
+end;
+
+procedure TTestResolveGenerics.TestGen_Class_List;
+begin
+  StartProgram(false);
+  Add([
+  '{$mode objfpc}',
+  'type',
+  '  TObject = class end;',
+  '  generic TList<T> = class',
+  '  strict private',
+  '    FItems: array of T;',
+  '    function GetItems(Index: longint): T;',
+  '    procedure SetItems(Index: longint; Value: T);',
+  '  public',
+  '    procedure Alter(w: T);',
+  '    property Items[Index: longint]: T read GetItems write SetItems; default;',
+  '  end;',
+  '  TWordList = specialize TList<word>;',
+  'function TList.GetItems(Index: longint): T;',
+  'begin',
+  '  Result:=FItems[Index];',
+  'end;',
+  'procedure TList.SetItems(Index: longint; Value: T);',
+  'begin',
+  '  FItems[Index]:=Value;',
+  'end;',
+  'procedure TList.Alter(w: T);',
+  'begin',
+  '  SetLength(FItems,length(FItems)+1);',
+  '  Insert(w,FItems,2);',
+  '  Delete(FItems,2,3);',
+  'end;',
+  'var l: TWordList;',
+  '  w: word;',
+  'begin',
+  '  l[1]:=w;',
+  '  w:=l[2];']);
+  ParseProgram;
+end;
+
+procedure TTestResolveGenerics.TestGen_ExtClass_Array;
+begin
+  StartProgram(false);
+  Add([
+  '{$mode delphi}',
+  '{$ModeSwitch externalclass}',
+  'type',
+  '  NativeInt = longint;',
+  '  TJSGenArray<T> = Class external name ''Array''',
+  '  private',
+  '    function GetElements(Index: NativeInt): T; external name ''[]'';',
+  '    procedure SetElements(Index: NativeInt; const AValue: T); external name ''[]'';',
+  '  public',
+  '    type TSelfType = TJSGenArray<T>;',
+  '    TArrayEvent = reference to function(El: T; Arr: TSelfType): Boolean;',
+  '    TArrayCallback = TArrayEvent;',
+  '  public',
+  '    FLength : NativeInt; external name ''length'';',
+  '    constructor new; overload;',
+  '    constructor new(aLength : NativeInt); overload;',
+  '    class function _of() : TSelfType; varargs; external name ''of'';',
+  '    function every(const aCallback: TArrayCallBack): boolean; overload;',
+  '    function fill(aValue : T) : TSelfType; overload;',
+  '    function fill(aValue : T; aStartIndex : NativeInt) : TSelfType; overload;',
+  '    function fill(aValue : T; aStartIndex,aEndIndex : NativeInt) : TSelfType; overload;',
+  '    property Length : NativeInt Read FLength Write FLength;',
+  '    property Elements[Index: NativeInt]: T read GetElements write SetElements; default;',
+  '  end;',
+  '  TJSWordArray = TJSGenArray<word>;',
+  'var',
+  '  wa: TJSWordArray;',
+  '  w: word;',
+  'begin',
+  '  wa:=TJSWordArray.new;',
+  '  wa:=TJSWordArray.new(3);',
+  '  wa:=TJSWordArray._of(4,5);',
+  '  wa:=wa.fill(7);',
+  '  wa:=wa.fill(7,8,9);',
+  '  w:=wa.length;',
+  '  wa.length:=10;',
+  '  wa[11]:=w;',
+  '  w:=wa[12];',
+  '  wa.every(function(El: word; Arr: TJSWordArray): Boolean',
+  '           begin',
+  '           end',
+  '      );',
+  '']);
+  ParseProgram;
+end;
+
+procedure TTestResolveGenerics.TestGen_Array;
+begin
+  StartProgram(false);
+  Add([
+  'type',
+  '  generic TArray<T> = array of T;',
+  '  TWordArray = specialize TArray<word>;',
+  'var',
+  '  a: specialize TArray<word>;',
+  '  b: TWordArray;',
+  '  w: word;',
+  'begin',
+  '  a[1]:=2;',
+  '  b[2]:=a[3]+b[4];',
+  '  a:=b;',
+  '  b:=a;',
+  '  SetLength(a,5);',
+  '  SetLength(b,6);',
+  '']);
+  ParseProgram;
+end;
+
+procedure TTestResolveGenerics.TestGen_ProcType;
+begin
+  StartProgram(false);
+  Add([
+  'type',
+  '  generic TFunc<T> = function(v: T): T;',
+  '  TWordFunc = specialize TFunc<word>;',
+  'function GetIt(w: word): word;',
+  'begin',
+  'end;',
+  'var',
+  '  a: specialize TFunc<word>;',
+  '  b: TWordFunc;',
+  '  w: word;',
+  'begin',
+  '  a:=nil;',
+  '  b:=nil;',
+  '  a:=b;',
+  '  b:=a;',
+  '  w:=a(w);',
+  '  w:=b(w);',
+  '  a:=@GetIt;',
+  '  b:=@GetIt;',
+  '']);
+  ParseProgram;
 end;
 
 procedure TTestResolveGenerics.TestGen_GenericFunction;
@@ -581,7 +926,45 @@ begin
   ParseProgram;
 end;
 
-procedure TTestResolveGenerics.TestGen_ForLoop;
+procedure TTestResolveGenerics.TestGen_InlineSpecializeExpr;
+begin
+  StartProgram(false);
+  Add([
+  '{$mode objfpc}',
+  'type',
+  '  TObject = class end;',
+  '  generic TBird<T> = class',
+  '    constructor Create;',
+  '  end;',
+  '  generic TAnt<U> = class',
+  '    constructor Create;',
+  '  end;',
+  'constructor TBird.Create;',
+  'var',
+  '  a: TAnt<T>;',
+  '  b: TAnt<word>;',
+  'begin',
+  '  a:=TAnt<T>.create;',
+  '  b:=TAnt<word>.create;',
+  'end;',
+  'constructor TAnt.Create;',
+  'var',
+  '  i: TBird<U>;',
+  '  j: TBird<word>;',
+  '  k: TAnt<U>;',
+  'begin',
+  '  i:=TBird<U>.create;',
+  '  j:=TBird<word>.create;',
+  '  k:=TAnt<U>.create;',
+  'end;',
+  'var a: TAnt<word>;',
+  'begin',
+  '  a:=TAnt<word>.create;',
+  '']);
+  ParseProgram;
+end;
+
+procedure TTestResolveGenerics.TestGen_TryExcept;
 begin
   StartProgram(false);
   Add([
@@ -591,10 +974,30 @@ begin
   '  generic TBird<{#Templ}T> = class',
   '    function Fly(p:T): T;',
   '  end;',
+  '  Exception = class',
+  '  end;',
+  '  generic EMsg<T> = class',
+  '    Msg: T;',
+  '  end;',
   'function TBird.Fly(p:T): T;',
-  'var i: T;',
+  'var',
+  '  v1,v2,v3:T;',
   'begin',
-  '  for i:=0 to 3 do Result:=i+p;',
+  '  try',
+  '  finally',
+  '  end;',
+  '  try',
+  '    v1:=v2;',
+  '  finally',
+  '    v2:=v1;',
+  '  end;',
+  '  try',
+  '  except',
+  '    on Exception do ;',
+  '    on E: Exception do ;',
+  '    on E: EMsg<boolean> do E.Msg:=true;',
+  '    on E: EMsg<T> do E.Msg:=1;',
+  '  end;',
   'end;',
   'var',
   '  b: specialize TBird<word>;',

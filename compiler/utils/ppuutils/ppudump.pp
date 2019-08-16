@@ -3468,6 +3468,7 @@ var
   realvalue : ppureal;
   doublevalue : double;
   singlevalue : single;
+  realstr : shortstring;
   extended : TSplit80bitReal;
   pw : pcompilerwidestring;
   varoptions : tvaroptions;
@@ -3582,19 +3583,22 @@ begin
                      begin
                        realvalue:=getrealsize(sizeof(ppureal));
                        constdef.VFloat:=realvalue;
-                       writeln([realvalue]);
+                       system.str(realvalue,realstr);
+                       writeln([realstr]);
                      end
                    else if entryleft=sizeof(double) then
                      begin
                        doublevalue:=getrealsize(sizeof(double));
                        constdef.VFloat:=doublevalue;
-                       writeln([doublevalue]);
+                       system.str(doublevalue,realstr);
+                       writeln([realstr]);
                      end
                    else if entryleft=sizeof(single) then
                      begin
                        singlevalue:=getrealsize(sizeof(single));
                        constdef.VFloat:=singlevalue;
-                       writeln([singlevalue]);
+                       system.str(singlevalue,realstr);
+                       writeln([realstr]);
                      end
                    else if entryleft=10 then
                      begin
