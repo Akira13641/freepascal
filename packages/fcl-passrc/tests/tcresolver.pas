@@ -360,6 +360,7 @@ type
     Procedure TestUnitUseIntf;
     Procedure TestUnitUseImplFail;
     Procedure TestUnit_DuplicateUsesFail;
+    Procedure TestUnit_DuplicateUsesIntfImplFail;
     Procedure TestUnit_NestedFail;
     Procedure TestUnitUseDotted;
     Procedure TestUnit_ProgramDefaultNamespace;
@@ -5674,6 +5675,28 @@ begin
     nParserDuplicateIdentifier);
 end;
 
+procedure TTestResolver.TestUnit_DuplicateUsesIntfImplFail;
+begin
+  AddModuleWithIntfImplSrc('unit2.pp',
+    LinesToStr([
+    'type number = longint;']),
+    LinesToStr([
+    '']));
+
+  StartUnit(true);
+  Add([
+  'interface',
+  'uses unit2;',
+  'var j: number;',
+  'implementation',
+  'uses unit2;',
+  'initialization',
+  '  if number(3) then ;',
+  '']);
+  CheckParserException('Duplicate identifier "unit2" at token ";" in file afile.pp at line 6 column 11',
+    nParserDuplicateIdentifier);
+end;
+
 procedure TTestResolver.TestUnit_NestedFail;
 begin
   AddModuleWithIntfImplSrc('unit2.pp',
@@ -5885,8 +5908,8 @@ begin
   '  if unit1.j1=0 then ;',
   '  if unitdots.unit1.j1=0 then ;',
   '']);
-  CheckResolverException('Duplicate identifier "unitdots.unit1" at unitdots.main1.pas(2,14)',
-    nDuplicateIdentifier);
+  CheckParserException('Duplicate identifier "unit1" at token ";" in file unitdots.main1.pas at line 2 column 27',
+    nParserDuplicateIdentifier);
 end;
 
 procedure TTestResolver.TestUnit_Unit1DotUnit2Fail;
