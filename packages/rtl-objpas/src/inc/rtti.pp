@@ -863,6 +863,34 @@ asm
   jmp %eax
 RawThunkEnd:
 end;
+{$elseif defined(cpux86_64)}
+const
+  RawThunkPlaceholderProc = PtrUInt($8765876587658765);
+  RawThunkPlaceholderContext = PtrUInt($4321432143214321);
+
+type
+  TRawThunkProc = PtrUInt;
+  TRawThunkContext = PtrUInt;
+
+{$ifdef win64}
+procedure RawThunk; assembler; nostackframe;
+asm
+  { Self is always in register RCX }
+  movl RawThunkPlaceholderContext, %rcx
+  movl RawThunkPlaceholderProc, %rax
+  jmp %rax
+RawThunkEnd:
+end;
+{$else}
+procedure RawThunk; assembler; nostackframe;
+asm
+  { Self is always in register RDI }
+  movl RawThunkPlaceholderContext, %rdi
+  movl RawThunkPlaceholderProc, %rax
+  jmp %rax
+RawThunkEnd:
+end;
+{$endif}
 {$endif}
 
 {$if declared(RawThunk)}
