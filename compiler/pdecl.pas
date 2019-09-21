@@ -285,13 +285,13 @@ implementation
                        { note: we keep hdef so that we might at least read the
                                constant data correctly for error recovery }
                        check_allowed_for_var_or_const(hdef,false);
-                       sym:=cfieldvarsym.create(orgname,varspez,hdef,[],true);
+                       sym:=cfieldvarsym.create(orgname,varspez,hdef,[]);
                        symtablestack.top.insert(sym);
                        sym:=make_field_static(symtablestack.top,tfieldvarsym(sym));
                      end
                    else
                      begin
-                       sym:=cstaticvarsym.create(orgname,varspez,hdef,[],true);
+                       sym:=cstaticvarsym.create(orgname,varspez,hdef,[]);
                        sym.visibility:=symtablestack.top.currentvisibility;
                        symtablestack.top.insert(sym);
                      end;
@@ -374,12 +374,12 @@ implementation
                   begin
                     if symtablestack.top.symtabletype=localsymtable then
                       begin
-                        labelsym.jumpbuf:=clocalvarsym.create('LABEL$_'+labelsym.name,vs_value,rec_jmp_buf,[],true);
+                        labelsym.jumpbuf:=clocalvarsym.create('LABEL$_'+labelsym.name,vs_value,rec_jmp_buf,[]);
                         symtablestack.top.insert(labelsym.jumpbuf);
                       end
                     else
                       begin
-                        labelsym.jumpbuf:=cstaticvarsym.create('LABEL$_'+labelsym.name,vs_value,rec_jmp_buf,[],true);
+                        labelsym.jumpbuf:=cstaticvarsym.create('LABEL$_'+labelsym.name,vs_value,rec_jmp_buf,[]);
                         symtablestack.top.insert(labelsym.jumpbuf);
                         cnodeutils.insertbssdata(tstaticvarsym(labelsym.jumpbuf));
                       end;
@@ -537,6 +537,52 @@ implementation
         until not try_to_consume(_COMMA);
 
         consume(_RECKKLAMMER);
+      end;
+
+
+    { From http://clang.llvm.org/docs/LanguageExtensions.html#objective-c-features :
+      To determine whether a method has an inferred related result type, the first word in the camel-case selector
+      (e.g., “init” in “initWithObjects”) is considered, and the method will have a related result type if its return
+      type is compatible with the type of its class and if:
+        * the first word is "alloc" or "new", and the method is a class method, or
+        * the first word is "autorelease", "init", "retain", or "self", and the method is an instance method.
+
+      If a method with a related result type is overridden by a subclass method, the subclass method must also return
+      a type that is compatible with the subclass type.
+    }
+    procedure pd_set_objc_related_result(def: tobject; para: pointer);
+      var
+        pd: tprocdef;
+        i, firstcamelend: longint;
+        inferresult: boolean;
+      begin
+        if tdef(def).typ<>procdef then
+          exit;
+        pd:=tprocdef(def);
+        if not(po_msgstr in pd.procoptions) then
+          internalerror(2019082401);
+        firstcamelend:=length(pd.messageinf.str^);
+        for i:=1 to length(pd.messageinf.str^) do
+          if pd.messageinf.str^[i] in ['A'..'Z'] then
+            begin
+              firstcamelend:=pred(i);
+              break;
+            end;
+        case copy(pd.messageinf.str^,1,firstcamelend) of
+          'alloc',
+          'new':
+             inferresult:=po_classmethod in pd.procoptions;
+          'autorelease',
+          'init',
+          'retain',
+          'self':
+             inferresult:=not(po_classmethod in pd.procoptions);
+          else
+            inferresult:=false;
+        end;
+        if inferresult and
+           def_is_related(tdef(pd.procsym.owner.defowner),pd.returndef) then
+          include(pd.procoptions,po_objc_related_result_type);
       end;
 
     procedure types_dec(in_structure: boolean;out had_generic:boolean;var rtti_attrs_def: trtti_attribute_list);
@@ -780,7 +826,7 @@ implementation
                   sym:=tsym(symtablestack.top.Find(typename));
                   if not assigned(sym) then
                     begin
-                      sym:=ctypesym.create(orgtypename,cundefineddef.create(true),true);
+                      sym:=ctypesym.create(orgtypename,cundefineddef.create(true));
                       Include(sym.symoptions,sp_generic_dummy);
                       ttypesym(sym).typedef.typesym:=sym;
                       sym.visibility:=symtablestack.top.currentvisibility;
@@ -821,7 +867,7 @@ implementation
               { insert a new type if we don't reuse an existing symbol }
               if not assigned(newtype) then
                 begin
-                  newtype:=ctypesym.create(genorgtypename,hdef,true);
+                  newtype:=ctypesym.create(genorgtypename,hdef);
                   newtype.visibility:=symtablestack.top.currentvisibility;
                   symtablestack.top.insert(newtype);
                 end;
@@ -1057,7 +1103,10 @@ implementation
                     if is_objc_class_or_protocol(hdef) and
                        (not is_objccategory(hdef) or
                         assigned(tobjectdef(hdef).childof)) then
-                      tobjectdef(hdef).finish_objc_data;
+                      begin
+                        tobjectdef(hdef).finish_objc_data;
+                        tobjectdef(hdef).symtable.DefList.ForEachCall(@pd_set_objc_related_result,nil);
+                      end;
 
                     if is_cppclass(hdef) then
                       tobjectdef(hdef).finish_cpp_data;

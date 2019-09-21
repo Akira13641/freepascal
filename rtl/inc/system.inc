@@ -458,6 +458,16 @@ function aligntoqword(p : pointer) : pointer;inline;
   end;
 
 
+function AlignTypeData(p : pointer) : pointer; inline;
+  begin
+{$if defined(CPUM68K) and not defined(VER3_0)}
+    result := aligntoqword(p);
+{$else CPUM68K and not VER3_0}
+    result := aligntoptr(p);
+{$endif CPUM68K and not VER3_0}
+  end;
+
+
 {$if not defined(VER3_0) and not defined(VER3_2)}
 type
   TRttiDataCommon =
@@ -941,15 +951,27 @@ begin
   { Avoid recursive calls when called from the exit routines }
   if StackError then
    exit;
-  { don't use sack_size, since the stack pointer has already been
+  { check stack alignment }
+{$ifdef CPUI386}
+{$ifdef FPC_STACKALIGNMENT}
+{$if FPC_STACKALIGNMENT=16}
+  if ((PtrUInt(Sptr)+4) mod 16)<>0 then
+    begin
+      StackError:=true;
+      HandleError(202);
+    end;
+{$endif FPC_STACKALIGNMENT=16}
+{$endif FPC_STACKALIGNMENT}
+{$endif CPUI386}
+  { don't use stack_size, since the stack pointer has already been
     decreased when this routine is called
   }
   c := Sptr - STACK_MARGIN;
   if (c <= StackBottom) then
-   begin
-     StackError:=true;
-     HandleError(202);
-   end;
+    begin
+      StackError:=true;
+      HandleError(202);
+    end;
 end;
 {$POP}
 

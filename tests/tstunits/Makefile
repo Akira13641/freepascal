@@ -1759,8 +1759,9 @@ endif
 ifdef LIB_NAME
 	-$(DEL) $(LIB_NAME) $(LIB_FULLNAME)
 endif
-	-$(DEL) $(FPCMADE) Package.fpc $(PPAS) script.res link.res $(FPCEXTFILE) $(REDIRFILE)
-	-$(DEL) *$(ASMEXT) *_ppas$(BATCHEXT) ppas$(BATCHEXT) ppaslink$(BATCHEXT)
+	-$(DEL) $(FPCMADE) *$(FULL_TARGET).fpm Package.fpc *$(ASMEXT)
+	-$(DEL) $(FPCEXTFILE) $(REDIRFILE) script*.res link*.res *_script.res *_link.res
+	-$(DEL) $(PPAS) *_ppas$(BATCHEXT) ppas$(BATCHEXT) ppaslink$(BATCHEXT)
 fpc_cleanall: $(CLEANTARGET)
 ifdef CLEANEXEFILES
 	-$(DEL) $(CLEANEXEFILES)
@@ -1786,8 +1787,9 @@ ifneq ($(PPUEXT),.ppu)
 	-$(DEL) *.o *.ppu *.a
 endif
 	-$(DELTREE) *$(SMARTEXT)
-	-$(DEL) fpcmade.* Package.fpc $(PPAS) script.res link.res $(FPCEXTFILE) $(REDIRFILE)
-	-$(DEL) *_ppas$(BATCHEXT) ppas$(BATCHEXT) ppaslink$(BATCHEXT)
+	-$(DEL) fpcmade.* Package.fpc *.fpm
+	-$(DEL) $(FPCEXTFILE) $(REDIRFILE) script*.res link*.res *_script.res *_link.res
+	-$(DEL) $(PPAS) *_ppas$(BATCHEXT) ppas$(BATCHEXT) ppaslink$(BATCHEXT)
 ifdef AOUTEXT
 	-$(DEL) *$(AOUTEXT)
 endif
@@ -1952,11 +1954,11 @@ DUMMYINSTALLDIR=$(BASEDIR)/tmp
 INSTALLOPT=INSTALL_PREFIX=$(DUMMYINSTALLDIR) INSTALL_UNITDIR=$(BASEDIR)/$(COMPILER_TARGETDIR)
 rtl-stamp.$(FULL_TARGET):
 ifneq ($(inOS2),)
-	$(MAKE) -C ../../rtl all "OPT=$(OPT) -n" "CROSSOPT=$(CROSSOPT)"
+	$(MAKE) -C ../../rtl all "OPT=$(OPT) -n" "CROSSOPT=$(CROSSOPT)" FPC=$(FPC) FPCFPMAKE=$(NATIVE_FPC)
 else
-	$(MAKE) -C ../../rtl all 'OPT=$(OPT) -n' 'CROSSOPT=$(CROSSOPT)'
+	$(MAKE) -C ../../rtl all 'OPT=$(OPT) -n' 'CROSSOPT=$(CROSSOPT)' FPC=$(FPC) FPCFPMAKE=$(NATIVE_FPC)
 endif
-	$(MAKE) -C ../../rtl install $(INSTALLOPT) OPT= CROSSOPT=
+	$(MAKE) -C ../../rtl install $(INSTALLOPT) OPT= CROSSOPT= FPC=$(FPC) FPCFPMAKE=$(NATIVE_FPC)
 	$(ECHO) Compiled > rtl-stamp.$(FULL_TARGET)
 cleanrtl:
 	$(DELTREE) $(COMPILER_TARGETDIR)
@@ -1989,11 +1991,11 @@ INSTALLOPT=INSTALL_PREFIX=$(DUMMYINSTALLDIR) INSTALL_UNITDIR=$(BASEDIR)/$(COMPIL
 PACKAGESDIR=$(FPCDIR)/packages
 packages-stamp.$(FULL_TARGET):
 ifneq ($(inOS2),)
-	$(MAKE) -C ../../packages all "OPT=$(OPT) -n" "CROSSOPT=$(CROSSOPT)"
+	$(MAKE) -C ../../packages all "OPT=$(OPT) -n" "CROSSOPT=$(CROSSOPT)" FPC=$(FPC) FPCFPMAKE=$(NATIVE_FPC)
 else
-	$(MAKE) -C ../../packages all 'OPT=$(OPT) -n' 'CROSSOPT=$(CROSSOPT)'
+	$(MAKE) -C ../../packages all 'OPT=$(OPT) -n' 'CROSSOPT=$(CROSSOPT)' FPC=$(FPC) FPCFPMAKE=$(NATIVE_FPC)
 endif
-	$(MAKE) -C ../../packages install $(INSTALLOPT) OPT= CROSSOPT=
+	$(MAKE) -C ../../packages install $(INSTALLOPT) OPT= CROSSOPT= FPC=$(FPC) FPCFPMAKE=$(NATIVE_FPC)
 	$(ECHO) Compiled > packages-stamp.$(FULL_TARGET)
 cleanpackages:
 	$(DELTREE) $(COMPILER_TARGETDIR)

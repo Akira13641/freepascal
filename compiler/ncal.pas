@@ -587,8 +587,7 @@ implementation
           -> must have unique name in entire progream }
         calldescsym:=cstaticvarsym.create(
           internaltypeprefixName[itp_vardisp_calldesc]+current_module.modulename^+'$'+tostr(current_module.localsymtable.SymList.count),
-          vs_const,tcb.end_anonymous_record,[vo_is_public,vo_is_typed_const],
-          false);
+          vs_const,tcb.end_anonymous_record,[vo_is_public,vo_is_typed_const]);
         calldescsym.varstate:=vs_initialised;
         current_module.localsymtable.insert(calldescsym);
         current_asmdata.AsmLists[al_typedconsts].concatList(
@@ -3863,6 +3862,20 @@ implementation
                result:=hpt;
                exit;
              end;
+
+            { in case this is an Objective-C message that returns a related object type by convention,
+              override the default result type }
+            if po_objc_related_result_type in procdefinition.procoptions then
+              begin
+                { don't crash in case of syntax errors }
+                if assigned(methodpointer) then
+                  begin
+                    include(callnodeflags,cnf_typedefset);
+                    typedef:=methodpointer.resultdef;
+                    if typedef.typ=classrefdef then
+                      typedef:=tclassrefdef(typedef).pointeddef;
+                  end;
+              end;
 
            { ensure that the result type is set }
            if not(cnf_typedefset in callnodeflags) then

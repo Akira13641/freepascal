@@ -386,6 +386,7 @@ type
     Procedure TestArithmeticOperators1;
     Procedure TestLogicalOperators;
     Procedure TestBitwiseOperators;
+    Procedure TestBitwiseOperatorsLongword;
     Procedure TestFunctionInt;
     Procedure TestFunctionString;
     Procedure TestIfThen;
@@ -688,6 +689,7 @@ type
     Procedure TestTypeHelper_Word;
     Procedure TestTypeHelper_Double;
     Procedure TestTypeHelper_StringChar;
+    Procedure TestTypeHelper_JSValue;
     Procedure TestTypeHelper_Array;
     Procedure TestTypeHelper_EnumType;
     Procedure TestTypeHelper_SetType;
@@ -3141,6 +3143,69 @@ begin
     '$mod.X = rtl.or($mod.Y, $mod.vA);',
     '$mod.X = rtl.xor($mod.Y, $mod.Z);',
     '$mod.X = rtl.xor($mod.Y, $mod.vA);',
+    '']));
+end;
+
+procedure TTestModule.TestBitwiseOperatorsLongword;
+begin
+  StartProgram(false);
+  Add([
+  'var',
+  '  a,b,c:longword;',
+  '  i: longint;',
+  'begin',
+  '  a:=$12345678;',
+  '  b:=$EDCBA987;',
+  '  c:=not a;',
+  '  c:=a and b;',
+  '  c:=a and $ffff0000;',
+  '  c:=a or b;',
+  '  c:=a or $ff00ff00;',
+  '  c:=a xor b;',
+  '  c:=a xor $f0f0f0f0;',
+  '  c:=a shl 1;',
+  '  c:=a shl 16;',
+  '  c:=a shl 24;',
+  '  c:=a shl b;',
+  '  c:=a shr 1;',
+  '  c:=a shr 16;',
+  '  c:=a shr 24;',
+  '  c:=a shr b;',
+  '  c:=(b and c) or (a and b);',
+  '  c:=i and a;',
+  '  c:=i or a;',
+  '  c:=i xor a;',
+  '']);
+  ConvertProgram;
+  CheckSource('TestBitwiseOperatorsLongword',
+    LinesToStr([ // statements
+    'this.a = 0;',
+    'this.b = 0;',
+    'this.c = 0;',
+    'this.i = 0;',
+    '']),
+    LinesToStr([ // this.$main
+    '$mod.a = 0x12345678;',
+    '$mod.b = 0xEDCBA987;',
+    '$mod.c = rtl.lw(~$mod.a);',
+    '$mod.c = rtl.lw($mod.a & $mod.b);',
+    '$mod.c = rtl.lw($mod.a & 0xffff0000);',
+    '$mod.c = rtl.lw($mod.a | $mod.b);',
+    '$mod.c = rtl.lw($mod.a | 0xff00ff00);',
+    '$mod.c = rtl.lw($mod.a ^ $mod.b);',
+    '$mod.c = rtl.lw($mod.a ^ 0xf0f0f0f0);',
+    '$mod.c = rtl.lw($mod.a << 1);',
+    '$mod.c = rtl.lw($mod.a << 16);',
+    '$mod.c = rtl.lw($mod.a << 24);',
+    '$mod.c = rtl.lw($mod.a << $mod.b);',
+    '$mod.c = rtl.lw($mod.a >>> 1);',
+    '$mod.c = rtl.lw($mod.a >>> 16);',
+    '$mod.c = rtl.lw($mod.a >>> 24);',
+    '$mod.c = rtl.lw($mod.a >>> $mod.b);',
+    '$mod.c = rtl.lw(rtl.lw($mod.b & $mod.c) | rtl.lw($mod.a & $mod.b));',
+    '$mod.c = $mod.i & $mod.a;',
+    '$mod.c = $mod.i | $mod.a;',
+    '$mod.c = $mod.i ^ $mod.a;',
     '']));
 end;
 
@@ -18433,10 +18498,10 @@ begin
     'this.DoDefault = function (i, j, o) {',
     '  rtl._AddRef(i);',
     '  try {',
-    '    if ($mod.IUnknown.isPrototypeOf(i)) ;',
+    '    if (rtl.intfIsIntfT(i, $mod.IUnknown)) ;',
     '    if (rtl.queryIntfIsT(o, $mod.IUnknown)) ;',
     '    if (rtl.intfIsClass(i, $mod.TObject)) ;',
-    '    i = rtl.setIntfL(i, rtl.as(j, $mod.IUnknown));',
+    '    i = rtl.setIntfL(i, rtl.intfAsIntfT(j, $mod.IUnknown));',
     '    i = rtl.setIntfL(i, rtl.queryIntfT(o, $mod.IUnknown), true);',
     '    o = rtl.intfAsClass(j, $mod.TObject);',
     '    i = rtl.setIntfL(i, j);',
@@ -23326,7 +23391,7 @@ begin
   '{$modeswitch typehelpers}',
   'type',
   '  Float = type double;',
-  '  THelper = type helper for double',
+  '  THelper = type helper for Float',
   '    const NPI = 3.141592;',
   '    function ToStr: String;',
   '  end;',
@@ -23458,6 +23523,70 @@ begin
     '$mod.TCharHelper.Fly.call({',
     '  get: function () {',
     '      return "c";',
+    '    },',
+    '  set: function (v) {',
+    '      rtl.raiseE("EPropReadOnly");',
+    '    }',
+    '});',
+    '']));
+end;
+
+procedure TTestModule.TestTypeHelper_JSValue;
+begin
+  StartProgram(false);
+  Add([
+  '{$modeswitch typehelpers}',
+  'type',
+  '  TExtValue = type jsvalue;',
+  '  THelper = type helper for TExtValue',
+  '    function ToStr: String;',
+  '  end;',
+  'function THelper.ToStr: String;',
+  'begin',
+  'end;',
+  'var',
+  '  s: string;',
+  '  v: TExtValue;',
+  'begin',
+  '  s:=v.toStr;',
+  '  s:=v.toStr();',
+  '  TExtValue(s).toStr;',
+  '']);
+  ConvertProgram;
+  CheckSource('TestTypeHelper_JSValue',
+    LinesToStr([ // statements
+    'rtl.createHelper($mod, "THelper", null, function () {',
+    '  this.ToStr = function () {',
+    '    var Result = "";',
+    '    return Result;',
+    '  };',
+    '});',
+    'this.s = "";',
+    'this.v = undefined;',
+    '']),
+    LinesToStr([ // $mod.$main
+    '$mod.s = $mod.THelper.ToStr.call({',
+    '  p: $mod,',
+    '  get: function () {',
+    '      return this.p.v;',
+    '    },',
+    '  set: function (v) {',
+    '      this.p.v = v;',
+    '    }',
+    '});',
+    '$mod.s = $mod.THelper.ToStr.call({',
+    '  p: $mod,',
+    '  get: function () {',
+    '      return this.p.v;',
+    '    },',
+    '  set: function (v) {',
+    '      this.p.v = v;',
+    '    }',
+    '});',
+    '$mod.THelper.ToStr.call({',
+    '  p: $mod,',
+    '  get: function () {',
+    '      return this.p.s;',
     '    },',
     '  set: function (v) {',
     '      rtl.raiseE("EPropReadOnly");',
