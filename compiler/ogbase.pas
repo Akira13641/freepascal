@@ -91,6 +91,11 @@ interface
          RELOC_RELATIVE_24_THUMB,
          RELOC_RELATIVE_CALL_THUMB,
          RELOC_GOT32,
+         RELOC_TPOFF,
+         RELOC_TLSGD,
+         RELOC_TLSDESC,
+         RELOC_TLS_CALL,
+         RELOC_ARM_CALL,
 {$endif arm}
          { Relative relocation }
          RELOC_RELATIVE,
@@ -110,7 +115,9 @@ interface
          { Relative to GOT/gp }
          RELOC_GOTOFF,
          { Untranslated target-specific value }
-         RELOC_RAW
+         RELOC_RAW,
+         { offset in TLS block }
+         RELOC_DTPOFF
       );
 
 {$if defined(x86_64)}

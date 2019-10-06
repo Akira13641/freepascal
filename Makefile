@@ -471,8 +471,8 @@ ifneq ($(OPT),)
 OPTNEW+=$(OPT)
 endif
 ifneq ($(findstring $(OS_TARGET),linux),)
-ifneq ($(findstring $(CPU_TARGET),i386),)
-override OPTNEW+=-CVgeneral
+ifneq ($(findstring $(CPU_TARGET),i386 arm),)
+override OPTNEW+=-CVglobal-dynamic
 endif
 endif
 CLEANOPTS=FPC=$(PPNEW)

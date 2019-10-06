@@ -151,10 +151,13 @@ interface
           aitconst_got,
           { offset of symbol itself from GOT }
           aitconst_gotoff_symbol,
+          { offset in TLS block }
+          aitconst_dtpoff,
           { ARM TLS code }
           aitconst_gottpoff,
-          aitconst_tpoff
-
+          aitconst_tpoff,
+          aitconst_tlsgd,
+          aitconst_tlsdesc
         );
 
         tairealconsttype = (
@@ -2098,6 +2101,16 @@ implementation
           aitconst_got:
             result:=sizeof(pint);
           aitconst_gotoff_symbol:
+            result:=4;
+          aitconst_gottpoff:
+            result:=4;
+          aitconst_tlsgd:
+            result:=4;
+          aitconst_tpoff:
+            result:=4;
+          aitconst_tlsdesc:
+            result:=4;
+          aitconst_dtpoff:
             result:=4;
           else
             internalerror(200603253);

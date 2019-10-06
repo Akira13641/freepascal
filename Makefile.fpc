@@ -201,8 +201,8 @@ endif
 # some targets do not generate PIC by default so we have select explicitly 
 # the general threading model when compiling the final versions of rtl and packages
 ifneq ($(findstring $(OS_TARGET),linux),)
-ifneq ($(findstring $(CPU_TARGET),i386),)
-override OPTNEW+=-CVgeneral
+ifneq ($(findstring $(CPU_TARGET),i386 arm),)
+override OPTNEW+=-CVglobal-dynamic
 endif
 endif
 
