@@ -1047,6 +1047,7 @@ type
   public
     Scopes: TPasIdentifierScopeArray;
     Count: integer;
+    OnlyTypeMembers: boolean;
     procedure Add(Scope: TPasIdentifierScope);
     destructor Destroy; override;
     function GetFirstNonHelperScope: TPasIdentifierScope;
@@ -1075,6 +1076,7 @@ type
     OverriddenProc: TPasProcedure; // the ancestor proc with same signature
     ClassRecScope: TPasClassOrRecordScope;
     GroupScope: TPasGroupScope; // set during parsing a method body
+    NestedMembersScope: TPasGroupScope; // set during parsing a method body of a nested class
     SelfArg: TPasArgument;
     Flags: TPasProcedureScopeFlags;
     BoolSwitches: TBoolSwitches; // if Body<>nil then body start, otherwise when FinishProc
@@ -1821,6 +1823,7 @@ type
     procedure SpecializeVariable(GenEl, SpecEl: TPasVariable; Finish: boolean);
     procedure SpecializeConst(GenEl, SpecEl: TPasConst);
     procedure SpecializeProperty(GenEl, SpecEl: TPasProperty);
+    function SpecializeTypeRef(GenEl, SpecEl: TPasElement; GenTypeRef: TPasType): TPasType;
     procedure SpecializeElType(GenEl, SpecEl: TPasElement;
       GenElType: TPasType; var SpecElType: TPasType);
     procedure SpecializeElExpr(GenEl, SpecEl: TPasElement;
@@ -2113,6 +2116,8 @@ type
     function StashScopes(NewScopeCnt: integer): integer; // returns old StashDepth
     function StashSubExprScopes: integer; // returns old StashDepth
     procedure RestoreStashedScopes(StashDepth: integer);
+    procedure DeleteScope(Index: integer); virtual;
+    procedure InsertScope(Scope: TPasScope; Index: integer); virtual;
     function GetCurrentProcScope(ErrorEl: TPasElement): TPasProcedureScope;
     function GetProcScope(El: TPasElement): TPasProcedureScope;
     function GetCurrentSelfScope(ErrorEl: TPasElement): TPasProcedureScope;
@@ -2177,7 +2182,8 @@ type
     function IsSameType(TypeA, TypeB: TPasType; ResolveAlias: TPRResolveAlias): boolean; // check if it is exactly the same
     function HasExactType(const ResolvedEl: TPasResolverResult): boolean; // false if HiTypeEl was guessed, e.g. 1 guessed a btLongint
     function IndexOfGenericParam(Params: TPasExprArray): integer;
-    procedure CheckUseAsType(aType: TPasElement; id: TMaxPrecInt; ErrorEl: TPasElement);
+    procedure CheckUseAsType(aType: TPasElement; id: TMaxPrecInt;
+      ErrorEl: TPasElement);
     function CheckCallProcCompatibility(ProcType: TPasProcedureType;
       Params: TParamsExpr; RaiseOnError: boolean;
       SetReferenceFlags: boolean = false): integer;
@@ -3691,6 +3697,7 @@ begin
   {$ENDIF}
   FreeAndNil(References);
   FreeAndNil(GroupScope);
+  NestedMembersScope:=nil; // NestedMembersScope is auto freed
   inherited Destroy;
   ReleaseAndNil(TPasElement(SelfArg){$IFDEF CheckPasTreeRefCount},'TPasProcedureScope.SelfArg'{$ENDIF});
   {$IFDEF VerbosePasResolverMem}
@@ -6655,6 +6662,17 @@ begin
       begin
       ProcScope.GroupScope.Free;
       ProcScope.GroupScope:=nil;
+      if ProcScope.NestedMembersScope<>nil then
+        begin
+        for i:=0 to ScopeCount-1 do
+          if Scopes[i]=ProcScope.NestedMembersScope then
+            begin
+            DeleteScope(i);
+            break;
+            end;
+        ProcScope.NestedMembersScope.Free;
+        ProcScope.NestedMembersScope:=nil;
+        end;
       end;
     ProcScope.GenericStep:=psgsImplementationParsed;
     if ProcScope.DeclarationProc<>nil then
@@ -6662,9 +6680,11 @@ begin
       DeclProcScope:=ProcScope.DeclarationProc.CustomData as TPasProcedureScope;
       DeclProcScope.GenericStep:=psgsImplementationParsed;
       end;
-    end
-  else if ProcScope.GroupScope<>nil then
-    RaiseInternalError(20190122142142,GetObjName(Proc));
+    end;
+  if ProcScope.GroupScope<>nil then
+    RaiseNotYetImplemented(20190122142142,Proc);
+  if ProcScope.NestedMembersScope<>nil then
+    RaiseNotYetImplemented(20191014233200,Proc);
 
   if TopScope.Element<>Proc then
     RaiseInternalError(20190806094032);
@@ -8952,7 +8972,7 @@ begin
       argVar: ParamAccess:=rraVarParam;
       argOut: ParamAccess:=rraOutParam;
       end;
-    AccessExpr(Params.Params[i],ParamAccess);
+    FinishCallArgAccess(Params.Params[i],ParamAccess);
     end;
 end;
 
@@ -12156,6 +12176,7 @@ var
   Level, TypeParamCount, i: Integer;
   NamePart: TProcedureNamePart;
   TemplType, FoundTemplType: TPasGenericTemplateType;
+  NestedMembersScope: TPasGroupScope;
 begin
   {$IFDEF VerbosePasResolver}
   writeln('TPasResolver.AddProcedure ',GetObjName(El));
@@ -12377,11 +12398,29 @@ begin
   if HasDot then
     begin
     // create GroupScope
+    if TopScope<>ProcScope then
+      RaiseNotYetImplemented(20191014235935,El,GetObjName(TopScope));
     ProcScope.GroupScope:=CreateGroupScope(ClassOrRecType);
-    while ClassOrRecType.Parent is TPasMembersType do
+    if ClassOrRecType.Parent is TPasMembersType then
       begin
+      // nested class
       ClassOrRecType:=TPasMembersType(ClassOrRecType.Parent);
-      GroupScope_AddTypeAndAncestors(ProcScope.GroupScope,ClassOrRecType);
+      NestedMembersScope:=CreateGroupScope(ClassOrRecType);
+      ProcScope.NestedMembersScope:=NestedMembersScope;
+      NestedMembersScope.OnlyTypeMembers:=true;
+      // Delphi searches the parent class scopes *after* the section scopes
+      // and before the module scope - sigh
+      // -> Move scope between module scope and section scope
+      i:=0;
+      while (i<ScopeCount) and not (FScopes[i] is TPasModuleScope) do
+        inc(i);
+      InsertScope(NestedMembersScope,i+1);
+
+      while ClassOrRecType.Parent is TPasMembersType do
+        begin
+        ClassOrRecType:=TPasMembersType(ClassOrRecType.Parent);
+        GroupScope_AddTypeAndAncestors(NestedMembersScope,ClassOrRecType);
+        end;
       end;
     end;
 
@@ -17022,25 +17061,44 @@ begin
   FinishProperty(SpecEl);
 end;
 
+function TPasResolver.SpecializeTypeRef(GenEl, SpecEl: TPasElement;
+  GenTypeRef: TPasType): TPasType;
+var
+  GenParent, SpecParent, Ref: TPasElement;
+begin
+  if GenTypeRef.Name='' then
+    RaiseNotYetImplemented(20190813213555,GenEl,GetObjPath(GenTypeRef));
+  if GenEl.HasParent(GenTypeRef) then
+    begin
+    GenParent:=GenEl.Parent;
+    SpecParent:=SpecEl.Parent;
+    while GenParent<>GenTypeRef do
+      begin
+      GenParent:=GenParent.Parent;
+      SpecParent:=SpecParent.Parent;
+      end;
+    Ref:=SpecParent;
+    end
+  else
+    Ref:=FindElement(GenTypeRef.Name);
+  if not (Ref is TPasType) then
+    RaiseNotYetImplemented(20190812021538,GenEl,GetObjName(Ref));
+  Result:=TPasType(Ref);
+end;
+
 procedure TPasResolver.SpecializeElType(GenEl, SpecEl: TPasElement;
   GenElType: TPasType; var SpecElType: TPasType);
 var
-  Ref: TPasElement;
   NewClass: TPTreeElement;
 begin
   if GenElType=nil then exit;
+  if SpecElType<>nil then
+    RaiseNotYetImplemented(20190812021617,GenEl);
   if (GenElType.Parent<>GenEl)
       or (GenElType.ClassType=TPasGenericTemplateType) then
     begin
     // reference
-    if GenElType.Name='' then
-      RaiseNotYetImplemented(20190813213555,GenEl,GetObjName(GenElType)+' Parent='+GetObjName(GenElType.Parent));
-    Ref:=FindElement(GenElType.Name);
-    if not (Ref is TPasType) then
-      RaiseNotYetImplemented(20190812021538,GenEl,GetObjName(Ref));
-    GenElType:=TPasType(Ref);
-    if SpecElType<>nil then
-      RaiseNotYetImplemented(20190812021617,GenEl);
+    GenElType:=SpecializeTypeRef(GenEl,SpecEl,GenElType);
     SpecElType:=GenElType;
     SpecElType.AddRef{$IFDEF CheckPasTreeRefCount}('ResolveTypeReference'){$ENDIF};
     exit;
@@ -17116,9 +17174,7 @@ begin
       if not (GenListItem is TPasType) then
         RaiseNotYetImplemented(20190812025715,GenEl,IntToStr(i)+' GenListItem='+GetObjName(GenListItem));
       // reference
-      Ref:=FindElement(GenListItem.Name);
-      if not (Ref is TPasType) then
-        RaiseNotYetImplemented(20190812025715,GenEl,IntToStr(i)+' GenListItem='+GetObjName(GenListItem)+' Ref='+GetObjName(Ref));
+      Ref:=SpecializeTypeRef(GenEl,SpecEl,TpasType(GenListItem));
       Ref.AddRef{$IFDEF CheckPasTreeRefCount}(RefId){$ENDIF};
       SpecList.Add(Ref);
       continue;
@@ -17156,9 +17212,7 @@ begin
       if not (GenListItem is TPasType) then
         RaiseNotYetImplemented(20190914102957,GenEl,IntToStr(i)+' GenListItem='+GetObjName(GenListItem));
       // reference
-      Ref:=FindElement(GenListItem.Name);
-      if not (Ref is TPasType) then
-        RaiseNotYetImplemented(20190914103009,GenEl,IntToStr(i)+' GenListItem='+GetObjName(GenListItem)+' Ref='+GetObjName(Ref));
+      Ref:=SpecializeTypeRef(GenEl,SpecEl,TPasType(GenListItem));
       Ref.AddRef{$IFDEF CheckPasTreeRefCount}(RefId){$ENDIF};
       SpecList[i]:=Ref;
       continue;
@@ -19604,7 +19658,7 @@ end;
 
 function TPasResolver.BI_DeleteArray_OnGetCallCompatibility(
   Proc: TResElDataBuiltInProc; Expr: TPasExpr; RaiseOnError: boolean): integer;
-// Delete(var Array; Start, Count: integer)
+// DeleteScope(var Array; Start, Count: integer)
 var
   Params: TParamsExpr;
   Param: TPasExpr;
@@ -20664,7 +20718,9 @@ begin
     //writeln('TPasResolver.CheckFoundElement ',GetObjName(Proc),' ',IsClassMethod(Proc),' ElScope=',GetObjName(FindData.ElScope));
     if (FindData.ElScope<>StartScope) and IsClassMethod(Proc) then
       OnlyTypeMembers:=true;
-    end;
+    end
+  else if StartScope.ClassType=TPasGroupScope then
+    OnlyTypeMembers:=TPasGroupScope(StartScope).OnlyTypeMembers;
 
   //writeln('TPasResolver.CheckFoundElOnStartScope StartScope=',StartScope.ClassName,
   //    ' StartIsDot=',StartScope is TPasDotBaseScope,
@@ -20690,8 +20746,8 @@ begin
       // e.g. enumtype.enumvalue: ok
     else
       begin
-      RaiseMsg(20170216152348,nCannotAccessThisMemberFromAX,
-        sCannotAccessThisMemberFromAX,[GetElementTypeName(FindData.Found.Parent)],FindData.ErrorPosEl);
+      RaiseMsg(20170216152348,nInstanceMemberXInaccessible,
+        sInstanceMemberXInaccessible,[FindData.Found.Name],FindData.ErrorPosEl);
       end;
     end
   else if (proExtClassInstanceNoTypeMembers in Options)
@@ -22039,6 +22095,47 @@ begin
     FStashScopes[FStashScopeCount]:=nil;
     inc(FScopeCount);
     end;
+end;
+
+procedure TPasResolver.DeleteScope(Index: integer);
+  {$IF defined(fpc) and (FPC_FULLVERSION<30101)}
+  procedure Delete(var A: TPasScopeArray; Index, Count: integer); overload;
+  var
+    i: Integer;
+  begin
+    if Index<0 then
+      raise Exception.Create('20191014232344');
+    if Index+Count>length(A) then
+      raise Exception.Create('20191014232345');
+    for i:=Index+Count to length(A)-1 do
+      A[i-Count]:=A[i];
+    SetLength(A,length(A)-Count);
+  end;
+  {$ENDIF}
+begin
+  Delete(FScopes,Index,1);
+  dec(FScopeCount);
+end;
+
+procedure TPasResolver.InsertScope(Scope: TPasScope; Index: integer);
+  {$IF defined(fpc) and (FPC_FULLVERSION<30101)}
+  procedure Insert(Item: TPasScope; var A: TPasScopeArray; Index: integer); overload;
+  var
+    i: Integer;
+  begin
+    if Index<0 then
+      raise Exception.Create('20191014232355');
+    if Index>length(A) then
+      raise Exception.Create('20191014232356');
+    SetLength(A,length(A)+1);
+    for i:=length(A)-1 downto Index+1 do
+      A[i]:=A[i-1];
+    A[Index]:=Item;
+  end;
+  {$ENDIF}
+begin
+  Insert(Scope,FScopes,Index);
+  inc(FScopeCount);
 end;
 
 function TPasResolver.GetCurrentProcScope(ErrorEl: TPasElement
@@ -27023,8 +27120,15 @@ begin
       end;
     if (TPasGenericType(aType).GenericTemplateTypes<>nil)
         and (TPasGenericType(aType).GenericTemplateTypes.Count>0) then
-          RaiseMsg(id,nGenericsWithoutSpecializationAsType,sGenericsWithoutSpecializationAsType,
+      begin
+      // ref to generic type without specialization
+      if not (msDelphi in CurrentParser.CurrentModeswitches)
+          and (ErrorEl.HasParent(aType)) then
+        // ObjFPC allows referring to parent without type params
+      else
+        RaiseMsg(id,nGenericsWithoutSpecializationAsType,sGenericsWithoutSpecializationAsType,
             [ErrorEl.ElementTypeName],ErrorEl);
+      end;
     end;
 end;
 
