@@ -131,8 +131,9 @@ type
     procedure OnCheckElementParent(El: TPasElement; arg: pointer);
     procedure FreeSrcMarkers;
     procedure OnPasResolverLog(Sender: TObject; const Msg: String);
-    procedure ScannerDirective(Sender: TObject; Directive, Param: String;
+    procedure OnScannerDirective(Sender: TObject; Directive, Param: String;
       var Handled: boolean);
+    procedure OnScannerLog(Sender: TObject; const Msg: String);
   Protected
     FirstSrcMarker, LastSrcMarker: PSrcMarker;
     Procedure SetUp; override;
@@ -382,6 +383,7 @@ type
     // procs
     Procedure TestProcParam;
     Procedure TestProcParamAccess;
+    Procedure TestProcParamConstRefFail;
     Procedure TestFunctionResult;
     Procedure TestProcedureResultFail;
     Procedure TestProc_ArgVarPrecisionLossFail;
@@ -806,6 +808,7 @@ type
     Procedure TestArray_OpenArrayAsDynArraySetLengthFail;
     Procedure TestArray_OpenArrayAsDynArray;
     Procedure TestArray_OpenArrayDelphi;
+    Procedure TestArray_OpenArrayChar;
     Procedure TestArray_CopyConcat;
     Procedure TestStaticArray_CopyConcat;// ToDo
     Procedure TestArray_CopyMismatchFail;
@@ -1049,7 +1052,8 @@ begin
   FModules:=TObjectList.Create(true);
   inherited SetUp;
   Parser.Options:=Parser.Options+[po_ResolveStandardTypes];
-  Scanner.OnDirective:=@ScannerDirective;
+  Scanner.OnDirective:=@OnScannerDirective;
+  Scanner.OnLog:=@OnScannerLog;
 end;
 
 procedure TCustomTestResolver.TearDown;
@@ -2547,7 +2551,7 @@ begin
   FResolverMsgs.Add(Item);
 end;
 
-procedure TCustomTestResolver.ScannerDirective(Sender: TObject; Directive,
+procedure TCustomTestResolver.OnScannerDirective(Sender: TObject; Directive,
   Param: String; var Handled: boolean);
 var
   aScanner: TPascalScanner;
@@ -2560,6 +2564,17 @@ begin
   aScanner.LastMsgArgs:=nil;
   raise EScannerError.Create(aScanner.LastMsg);
   if Param='' then ;
+end;
+
+procedure TCustomTestResolver.OnScannerLog(Sender: TObject; const Msg: String);
+var
+  aScanner: TPascalScanner;
+begin
+  aScanner:=TPascalScanner(Sender);
+  if aScanner=nil then exit;
+  {$IFDEF VerbosePasResolver}
+  writeln('TCustomTestResolver.OnScannerLog ',GetObjName(Sender),' ',aScanner.LastMsgType,' ',aScanner.LastMsgNumber,' Msg="', Msg,'"');
+  {$ENDIF}
 end;
 
 function TCustomTestResolver.GetModules(Index: integer): TTestEnginePasResolver;
@@ -6102,6 +6117,16 @@ begin
   ParseProgram;
 end;
 
+procedure TTestResolver.TestProcParamConstRefFail;
+begin
+  StartProgram(false);
+  Add('procedure Run(constref a: word);');
+  Add('begin');
+  Add('end;');
+  Add('begin');
+  CheckResolverException('not yet implemented: constref',nNotYetImplemented);
+end;
+
 procedure TTestResolver.TestFunctionResult;
 begin
   StartProgram(false);
@@ -7272,7 +7297,7 @@ begin
   Add('procedure {#ProcA}ProcA(var {#A}A); forward;');
   Add('procedure {#ProcB}ProcB(const {#B}B); forward;');
   Add('procedure {#ProcC}ProcC(out {#C}C); forward;');
-  Add('procedure {#ProcD}ProcD(constref {#D}D); forward;');
+  //Add('procedure {#ProcD}ProcD(constref {#D}D); forward;');
   Add('procedure ProcA(var A);');
   Add('begin');
   Add('end;');
@@ -7282,15 +7307,15 @@ begin
   Add('procedure ProcC(out C);');
   Add('begin');
   Add('end;');
-  Add('procedure ProcD(constref D);');
-  Add('begin');
-  Add('end;');
+  //Add('procedure ProcD(constref D);');
+  //Add('begin');
+  //Add('end;');
   Add('var i: longint;');
   Add('begin');
   Add('  {@ProcA}ProcA(i);');
   Add('  {@ProcB}ProcB(i);');
   Add('  {@ProcC}ProcC(i);');
-  Add('  {@ProcD}ProcD(i);');
+  //Add('  {@ProcD}ProcD(i);');
   ParseProgram;
 end;
 
@@ -14685,6 +14710,21 @@ begin
   '  Fly(d);', // dyn array can be passed to a var open array
   'end;',
   'begin',
+  '']);
+  ParseProgram;
+end;
+
+procedure TTestResolver.TestArray_OpenArrayChar;
+begin
+  StartProgram(false);
+  Add([
+  '{$mode delphi}',
+  'Function CharInSet(Ch: Char;Const CSet : array of char) : Boolean;',
+  'begin',
+  'end;',
+  'var Key: Char;',
+  'begin',
+  '  if CharInSet(Key, [^V, ^X, ^C]) then ;',
   '']);
   ParseProgram;
 end;

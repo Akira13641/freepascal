@@ -58,6 +58,7 @@ type
     // generic class
     procedure TestGen_Class;
     procedure TestGen_ClassDelphi;
+    procedure TestGen_ClassDelphi_TypeOverload; // ToDo
     procedure TestGen_ClassObjFPC;
     procedure TestGen_ClassObjFPC_OverloadFail;
     procedure TestGen_ClassForward;
@@ -107,6 +108,7 @@ type
     procedure TestGen_PointerDirectSpecializeFail;
 
     // ToDo: helpers for generics
+    procedure TestGen_HelperForArray;
     // ToDo: default class prop array helper: arr<b>[c]
 
     // generic statements
@@ -158,6 +160,7 @@ type
 
     // generic methods
     procedure TestGenMethod_VirtualFail;
+    procedure TestGenMethod_PublishedFail;
     procedure TestGenMethod_ClassInterfaceMethodFail;
     procedure TestGenMethod_ClassConstructorFail;
     procedure TestGenMethod_TemplNameDifferFail;
@@ -750,6 +753,29 @@ begin
   'var',
   '  b: TBird<word>;',
   '  {=Typ}w: T;',
+  'begin',
+  '  b.v:=w;',
+  '']);
+  ParseProgram;
+end;
+
+procedure TTestResolveGenerics.TestGen_ClassDelphi_TypeOverload;
+begin
+  exit;
+
+  StartProgram(false);
+  Add([
+  '{$mode delphi}',
+  'type',
+  '  TObject = class end;',
+  '  TBird = word;',
+  '  TBird<T> = class',
+  '    v: T;',
+  '  end;',
+  '  TEagle = TBird<word>;',
+  'var',
+  '  b: TBird<word>;',
+  '  w: TBird;',
   'begin',
   '  b.v:=w;',
   '']);
@@ -1559,6 +1585,27 @@ begin
   CheckParserException('Expected "Identifier" at token "specialize" in file afile.pp at line 4 column 11',nParserExpectTokenError);
 end;
 
+procedure TTestResolveGenerics.TestGen_HelperForArray;
+begin
+  StartProgram(false);
+  Add([
+  '{$ModeSwitch typehelpers}',
+  'type',
+  '  generic TArr<T> = array[1..2] of T;',
+  '  TWordArrHelper = type helper for specialize TArr<word>',
+  '    procedure Fly(w: word);',
+  '  end;',
+  'procedure TWordArrHelper.Fly(w: word);',
+  'begin',
+  'end;',
+  'var',
+  '  a: specialize TArr<word>;',
+  'begin',
+  '  a.Fly(3);',
+  '']);
+  ParseProgram;
+end;
+
 procedure TTestResolveGenerics.TestGen_LocalVar;
 begin
   StartProgram(false);
@@ -2289,6 +2336,24 @@ begin
   'begin',
   '']);
   CheckResolverException('virtual, dynamic or message methods cannot have type parameters',
+    nXMethodsCannotHaveTypeParams);
+end;
+
+procedure TTestResolveGenerics.TestGenMethod_PublishedFail;
+begin
+  StartProgram(false);
+  Add([
+  'type',
+  '  TObject = class',
+  '  published',
+  '    generic procedure Run<T>(a: T);',
+  '  end;',
+  'generic procedure TObject.Run<T>(a: T);',
+  'begin',
+  'end;',
+  'begin',
+  '']);
+  CheckResolverException('published methods cannot have type parameters',
     nXMethodsCannotHaveTypeParams);
 end;
 
