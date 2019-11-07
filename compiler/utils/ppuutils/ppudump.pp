@@ -964,7 +964,7 @@ begin
       SetHasErrors;
       exit;
     end;
-  ppufile.getsmallset(options);
+  ppufile.getset(tppuset1(options));
   if space<>'' then
    writeln([space,'------ ',s,' ------']);
   write([space,'Symtable options: ']);
@@ -1635,7 +1635,7 @@ var
   i      : longint;
   first  : boolean;
 begin
-  ppufile.getsmallset(procinfooptions);
+  ppufile.getset(tppuset4(procinfooptions));
   if procinfooptions<>[] then
    begin
      first:=true;
@@ -1681,7 +1681,7 @@ var
   i      : longint;
   first  : boolean;
 begin
-  ppufile.getsmallset(symoptions);
+  ppufile.getset(tppuset2(symoptions));
   if symoptions<>[] then
    begin
      if Def <> nil then
@@ -2769,7 +2769,7 @@ begin
   else
     readderef('');
   write  ([space,'       DefOptions : ']);
-  ppufile.getsmallset(defoptions);
+  ppufile.getset(tppuset2(defoptions));
   if defoptions<>[] then
     begin
       first:=true;
@@ -2786,7 +2786,7 @@ begin
   writeln;
 
   write  ([space,'        DefStates : ']);
-  ppufile.getsmallset(defstates);
+  ppufile.getset(tppuset1(defstates));
   if defstates<>[] then
     begin
       first:=true;
@@ -2804,7 +2804,7 @@ begin
 
   if df_genconstraint in defoptions then
     begin
-      ppufile.getsmallset(genconstr);
+      ppufile.getset(tppuset1(genconstr));
       write  ([space,'   GenConstraints : ']);
       if genconstr<>[] then
         begin
@@ -3001,7 +3001,7 @@ begin
   writeln;
   proccalloption:=tproccalloption(ppufile.getbyte);
   writeln([space,'       CallOption : ',proccalloptionStr[proccalloption]]);
-  ppufile.getnormalset(procoptions);
+  ppufile.getset(tppuset8(procoptions));
   if procoptions<>[] then
    begin
      if po_classmethod in procoptions then Include(ProcDef.Options, poClassMethod);
@@ -3098,7 +3098,7 @@ begin
     readderef('',VarDef.VarType)
   else
     readderef('');
-  ppufile.getsmallset(varoptions);
+  ppufile.getset(tppuset4(varoptions));
   if varoptions<>[] then
    begin
      if (VarDef <> nil) and (VarDef.DefType = dtParam) and (vo_is_hidden_para in varoptions) then
@@ -3157,7 +3157,7 @@ var
   i      : longint;
   first  : boolean;
 begin
-  ppufile.getsmallset(current_objectoptions);
+  ppufile.getset(tppuset4(current_objectoptions));
   if current_objectoptions<>[] then
    begin
      if ObjDef <> nil then
@@ -3198,7 +3198,7 @@ var
   i: timplprocoption;
   first: boolean;
 begin
-  ppufile.getsmallset(implprocoptions);
+  ppufile.getset(tppuset1(implprocoptions));
   if implprocoptions<>[] then
     begin
       first:=true;
@@ -3235,7 +3235,7 @@ var
   i: tarraydefoption;
   first: boolean;
 begin
-  ppufile.getsmallset(symoptions);
+  ppufile.getset(tppuset1(symoptions));
   if symoptions<>[] then
    begin
      if ado_IsDynamicArray in symoptions then Include(ArrayDef.Options, aoDynamic);
@@ -3288,7 +3288,7 @@ var
   i      : longint;
   first  : boolean;
 begin
-  ppufile.getsmallset(result);
+  ppufile.getset(tppuset2(result));
   if result<>[] then
    begin
      first:=true;
@@ -3333,7 +3333,7 @@ var
   i      : longint;
   first  : boolean;
 begin
-  ppufile.getsmallset(result);
+  ppufile.getset(tppuset1(result));
   if result<>[] then
    begin
      first:=true;
@@ -4649,7 +4649,7 @@ var
   i      : longint;
   first  : boolean;
 begin
-  ppufile.getsmallset(moduleoptions);
+  ppufile.getset(tppuset1(moduleoptions));
   if moduleoptions<>[] then
    begin
      first:=true;
@@ -4690,7 +4690,7 @@ begin
            begin
              CurUnit.LongVersion:=cardinal(getlongint);
              Writeln(['LongVersion: ',CurUnit.LongVersion]);
-             getsmallset(CurUnit.ModuleFlags);
+             getset(tppuset4(CurUnit.ModuleFlags));
              if mf_symansistr in CurUnit.ModuleFlags then
                SymAnsiStr:=true;
            end;
@@ -4704,7 +4704,7 @@ begin
 
          ibfeatures :
            begin
-             getsmallset(features);
+             getset(tppuset4(features));
              Writeln('Features: ');
              for feature:=low(tfeatures) to high(tfeature) do
                if feature in features then
@@ -4884,7 +4884,7 @@ begin
     exit;
   CurUnit.LongVersion:=cardinal(ppufile.getlongint);
   Writeln(['LongVersion: ',CurUnit.LongVersion]);
-  ppufile.getsmallset(CurUnit.ModuleFlags);
+  ppufile.getset(tppuset4(CurUnit.ModuleFlags));
   result:=ppufile.EndOfEntry;
 end;
 
