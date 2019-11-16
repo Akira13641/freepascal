@@ -503,10 +503,25 @@ end;
 
 
 Procedure TStrings.SetDelimitedText(const AValue: string);
-var i,j: SizeInt;
-    aNotFirst:boolean;
+
 begin
- CheckSpecialChars;
+  CheckSpecialChars;
+  DoSetDelimitedText(aValue,True,FStrictDelimiter,FQuoteChar,FDelimiter);
+end;
+
+Procedure TStrings.DoSetDelimitedText(const AValue: string; DoClear,aStrictDelimiter : Boolean; aQuoteChar,aDelimiter : Char);
+
+var
+  len,i,j: SizeInt;
+  aNotFirst:boolean;
+
+  Procedure AddQuoted;
+
+  begin
+    Add(StringReplace(Copy(AValue,i+1,j-i-1),aQuoteChar+aQuoteChar,aQuoteChar, [rfReplaceAll]));
+  end;
+
+begin
  BeginUpdate;
 
  i:=1;
@@ -519,73 +534,74 @@ begin
  QuoteChars in the string must be repeated to distinguish them from the QuoteChars enclosing the string.
  }
  try
-  Clear;
-  If StrictDelimiter then
+  if DoClear then
+    Clear;
+  len:=length(AValue);
+  If aStrictDelimiter then
     begin
-    while i<=length(AValue) do begin
+    while i<=Len do begin
      // skip delimiter
-     if aNotFirst and (i<=length(AValue)) and (AValue[i]=FDelimiter) then inc(i);
+     if aNotFirst and (i<=len) and (AValue[i]=aDelimiter) then
+       inc(i);
 
      // read next string
-     if i<=length(AValue) then begin
-      if AValue[i]=FQuoteChar then begin
+     if i<=len then begin
+      if AValue[i]=aQuoteChar then begin
        // next string is quoted
        j:=i+1;
-       while (j<=length(AValue)) and
-             ( (AValue[j]<>FQuoteChar) or
-               ( (j+1<=length(AValue)) and (AValue[j+1]=FQuoteChar) ) ) do begin
-        if (j<=length(AValue)) and (AValue[j]=FQuoteChar) then inc(j,2)
-                                                          else inc(j);
-       end;
-       // j is position of closing quote
-       Add( StringReplace (Copy(AValue,i+1,j-i-1),
-                           FQuoteChar+FQuoteChar,FQuoteChar, [rfReplaceAll]));
+       while (j<=len) and
+             ((AValue[j]<>aQuoteChar) or
+              ((j+1<=len) and (AValue[j+1]=aQuoteChar))) do
+        begin
+        if (j<=len) and (AValue[j]=aQuoteChar) then
+          inc(j,2)
+        else
+          inc(j);
+        end;
+       AddQuoted;
        i:=j+1;
       end else begin
        // next string is not quoted; read until delimiter
        j:=i;
-       while (j<=length(AValue)) and
-             (AValue[j]<>FDelimiter) do inc(j);
+       while (j<=len) and
+             (AValue[j]<>aDelimiter) do inc(j);
        Add( Copy(AValue,i,j-i));
        i:=j;
       end;
      end else begin
       if aNotFirst then Add('');
      end;
-
      aNotFirst:=true;
     end;
     end
   else 
     begin
-    while i<=length(AValue) do begin
+    while i<=len do begin
      // skip delimiter
-     if aNotFirst and (i<=length(AValue)) and (AValue[i]=FDelimiter) then inc(i);
+     if aNotFirst and (i<=len) and (AValue[i]=aDelimiter) then inc(i);
 
      // skip spaces
-     while (i<=length(AValue)) and (Ord(AValue[i])<=Ord(' ')) do inc(i);
+     while (i<=len) and (Ord(AValue[i])<=Ord(' ')) do inc(i);
     
      // read next string
-     if i<=length(AValue) then begin
-      if AValue[i]=FQuoteChar then begin
+     if i<=len then begin
+      if AValue[i]=aQuoteChar then begin
        // next string is quoted
        j:=i+1;
-       while (j<=length(AValue)) and
-             ( (AValue[j]<>FQuoteChar) or
-               ( (j+1<=length(AValue)) and (AValue[j+1]=FQuoteChar) ) ) do begin
-        if (j<=length(AValue)) and (AValue[j]=FQuoteChar) then inc(j,2)
+       while (j<=len) and
+             ( (AValue[j]<>aQuoteChar) or
+               ( (j+1<=len) and (AValue[j+1]=aQuoteChar) ) ) do begin
+        if (j<=len) and (AValue[j]=aQuoteChar) then inc(j,2)
                                                           else inc(j);
        end;
-       // j is position of closing quote
-       Add( StringReplace (Copy(AValue,i+1,j-i-1),
-                           FQuoteChar+FQuoteChar,FQuoteChar, [rfReplaceAll]));
+       AddQuoted;
        i:=j+1;
       end else begin
        // next string is not quoted; read until control character/space/delimiter
        j:=i;
-       while (j<=length(AValue)) and
+       while (j<=len) and
              (Ord(AValue[j])>Ord(' ')) and
-             (AValue[j]<>FDelimiter) do inc(j);
+             (AValue[j]<>aDelimiter) do inc(j);
        Add( Copy(AValue,i,j-i));
        i:=j;
       end;
@@ -594,7 +610,7 @@ begin
      end;
 
      // skip spaces
-     while (i<=length(AValue)) and (Ord(AValue[i])<=Ord(' ')) do inc(i);
+     while (i<=len) and (Ord(AValue[i])<=Ord(' ')) do inc(i);
 
      aNotFirst:=true;
     end;
@@ -606,21 +622,9 @@ end;
 
 Procedure TStrings.SetCommaText(const Value: string);
 
-Var
-  C1,C2 : Char;
-
 begin
   CheckSpecialChars;
-  C1:=Delimiter;
-  C2:=QuoteChar;
-  Delimiter:=',';
-  QuoteChar:='"';
-  Try
-    SetDelimitedText(Value);
-  Finally
-    Delimiter:=C1;
-    QuoteChar:=C2;
-  end;
+  DoSetDelimitedText(Value,True,StrictDelimiter,'"',',');
 end;
 
 procedure TStrings.SetMissingNameValueSeparatorAction(AValue: TMissingNameValueSeparatorAction);
@@ -927,37 +931,22 @@ begin
 end;
 
 procedure TStrings.AddCommaText(const S: String);
-var
-  L: TStringList;
+
 begin
-  L := TStringList.Create;
-  try
-    L.CommaText := S;
-    AddStrings(L);
-  finally
-    L.Free;
-  end;
+  DoSetDelimitedText(S,False,StrictDelimiter,'"',',');
 end;
 
-procedure TStrings.AddDelimitedText(const S: String; ADelimiter: Char;
-  AStrictDelimiter: Boolean);
-var
-  L: TStringList;
+procedure TStrings.AddDelimitedText(const S: String; ADelimiter: Char; AStrictDelimiter: Boolean);
+
 begin
-  L := TStringList.Create;
-  try
-    L.Delimiter := ADelimiter;
-    L.StrictDelimiter := AStrictDelimiter;
-    L.DelimitedText := S;
-    AddStrings(L);
-  finally
-    L.Free;
-  end;
+  CheckSpecialChars;
+  DoSetDelimitedText(S,False,AStrictDelimiter,FQuoteChar,ADelimiter);
 end;
 
 procedure TStrings.AddDelimitedText(const S: String);
 begin
-  AddDelimitedText(S, FDelimiter, FStrictDelimiter);
+  CheckSpecialChars;
+  DoSetDelimitedText(S,False,FStrictDelimiter,FQuoteChar,FDelimiter);
 end;
 
 Procedure TStrings.SetUpdateState(Updating: Boolean);
@@ -967,7 +956,6 @@ begin
 end;
 
 
-
 destructor TSTrings.Destroy;
 
 begin
@@ -975,7 +963,6 @@ begin
     FreeAndNil(FEncoding);
   if (FDefaultEncoding<>nil) and not TEncoding.IsStandardEncoding(FDefaultEncoding) then
     FreeAndNil(FDefaultEncoding);
-
   inherited destroy;
 end;
 

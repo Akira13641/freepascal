@@ -2292,6 +2292,8 @@ unit aoptx86;
       var
         hp1, hp2, hp3: tai;
         l : ASizeInt;
+        ref: Integer;
+        saveref: treference;
       begin
         Result:=false;
         { removes seg register prefixes from LEA operations, as they
@@ -2318,11 +2320,8 @@ unit aoptx86;
               end
             else if (taicpu(p).oper[0]^.ref^.offset = 0) then
               begin
-                hp1:=taicpu(p.Next);
                 DebugMsg(SPeepholeOptimization + 'Lea2Nop done',p);
-                asml.remove(p);
-                p.free;
-                p:=hp1;
+                RemoveCurrentP(p);
                 Result:=true;
                 exit;
               end
@@ -2407,10 +2406,85 @@ unit aoptx86;
             DebugMsg(SPeepholeOptimization + 'LeaLea2Lea done',p);
             inc(taicpu(hp1).oper[0]^.ref^.offset,taicpu(p).oper[0]^.ref^.offset);
             taicpu(hp1).oper[0]^.ref^.base:=taicpu(p).oper[0]^.ref^.base;
-            asml.Remove(p);
-            p.Free;
-            p:=hp1;
+            RemoveCurrentP(p);
             result:=true;
+            exit;
+          end;
+        { changes
+            lea <ref1>, reg1
+            <op> ...,<ref. with reg1>,...
+            to
+            <op> ...,<ref1>,... }
+        if (taicpu(p).oper[1]^.reg<>current_procinfo.framepointer) and
+          (taicpu(p).oper[1]^.reg<>NR_STACK_POINTER_REG) and
+          GetNextInstruction(p,hp1) and
+          (hp1.typ=ait_instruction) and
+          not(MatchInstruction(hp1,A_LEA,[])) then
+          begin
+            { find a reference which uses reg1 }
+            if (taicpu(hp1).ops>=1) and (taicpu(hp1).oper[0]^.typ=top_ref) and RegInOp(taicpu(p).oper[1]^.reg,taicpu(hp1).oper[0]^) then
+              ref:=0
+            else if (taicpu(hp1).ops>=2) and (taicpu(hp1).oper[1]^.typ=top_ref) and RegInOp(taicpu(p).oper[1]^.reg,taicpu(hp1).oper[1]^) then
+              ref:=1
+            else
+              ref:=-1;
+            if (ref<>-1) and
+              { reg1 must be either the base or the index }
+              ((taicpu(hp1).oper[ref]^.ref^.base=taicpu(p).oper[1]^.reg) xor (taicpu(hp1).oper[ref]^.ref^.index=taicpu(p).oper[1]^.reg)) then
+              begin
+                { reg1 can be removed from the reference }
+                saveref:=taicpu(hp1).oper[ref]^.ref^;
+                if taicpu(hp1).oper[ref]^.ref^.base=taicpu(p).oper[1]^.reg then
+                  taicpu(hp1).oper[ref]^.ref^.base:=NR_NO
+                else if taicpu(hp1).oper[ref]^.ref^.index=taicpu(p).oper[1]^.reg then
+                  taicpu(hp1).oper[ref]^.ref^.index:=NR_NO
+                else
+                  Internalerror(2019111201);
+                { check if the can insert all data of the lea into the second instruction }
+                if ((taicpu(hp1).oper[ref]^.ref^.base=taicpu(p).oper[1]^.reg) or (taicpu(hp1).oper[ref]^.ref^.scalefactor in [0,1])) and
+                  ((taicpu(p).oper[0]^.ref^.base=NR_NO) or (taicpu(hp1).oper[ref]^.ref^.base=NR_NO)) and
+                  ((taicpu(p).oper[0]^.ref^.index=NR_NO) or (taicpu(hp1).oper[ref]^.ref^.index=NR_NO)) and
+                  ((taicpu(p).oper[0]^.ref^.symbol=nil) or (taicpu(hp1).oper[ref]^.ref^.symbol=nil)) and
+                  ((taicpu(p).oper[0]^.ref^.relsymbol=nil) or (taicpu(hp1).oper[ref]^.ref^.relsymbol=nil)) and
+                  ((taicpu(p).oper[0]^.ref^.scalefactor in [0,1]) or (taicpu(hp1).oper[ref]^.ref^.scalefactor in [0,1])) and
+                  (taicpu(p).oper[0]^.ref^.segment=NR_NO) and (taicpu(hp1).oper[ref]^.ref^.segment=NR_NO)
+{$ifdef x86_64}
+                  and (abs(taicpu(hp1).oper[ref]^.ref^.offset+taicpu(p).oper[0]^.ref^.offset)<=$7fffffff)
+                  and (((taicpu(p).oper[0]^.ref^.base<>NR_RIP) and (taicpu(p).oper[0]^.ref^.index<>NR_RIP)) or
+                       ((taicpu(hp1).oper[ref]^.ref^.base=NR_NO) and (taicpu(hp1).oper[ref]^.ref^.index=NR_NO))
+                      )
+{$endif x86_64}
+                  then
+                  begin
+                    { reg1 might not used by the second instruction after it is remove from the reference }
+                    if not(RegInInstruction(taicpu(p).oper[1]^.reg,taicpu(hp1))) then
+                      begin
+                        TransferUsedRegs(TmpUsedRegs);
+                        UpdateUsedRegs(TmpUsedRegs, tai(p.next));
+                        { reg1 is not updated so it might not be used afterwards }
+                        if not(RegUsedAfterInstruction(taicpu(p).oper[1]^.reg,hp1,TmpUsedRegs)) then
+                          begin
+                            DebugMsg(SPeepholeOptimization + 'LeaOp2Op done',p);
+                            if taicpu(p).oper[0]^.ref^.base<>NR_NO then
+                              taicpu(hp1).oper[ref]^.ref^.base:=taicpu(p).oper[0]^.ref^.base;
+                            if taicpu(p).oper[0]^.ref^.index<>NR_NO then
+                              taicpu(hp1).oper[ref]^.ref^.index:=taicpu(p).oper[0]^.ref^.index;
+                            if taicpu(p).oper[0]^.ref^.symbol<>nil then
+                              taicpu(hp1).oper[ref]^.ref^.symbol:=taicpu(p).oper[0]^.ref^.symbol;
+                            if taicpu(p).oper[0]^.ref^.relsymbol<>nil then
+                              taicpu(hp1).oper[ref]^.ref^.relsymbol:=taicpu(p).oper[0]^.ref^.relsymbol;
+                            if not(taicpu(p).oper[0]^.ref^.scalefactor in [0,1]) then
+                              taicpu(hp1).oper[ref]^.ref^.scalefactor:=taicpu(p).oper[0]^.ref^.scalefactor;
+                            inc(taicpu(hp1).oper[ref]^.ref^.offset,taicpu(p).oper[0]^.ref^.offset);
+                            RemoveCurrentP(p);
+                            result:=true;
+                            exit;
+                          end
+                      end;
+                  end;
+                { recover }
+                taicpu(hp1).oper[ref]^.ref^:=saveref;
+              end;
           end;
         { replace
             lea    x(stackpointer),stackpointer
@@ -2594,12 +2668,34 @@ unit aoptx86;
                    (((taicpu(hp1).opcode = A_INC) or
                      (taicpu(hp1).opcode = A_DEC)) and
                     (taicpu(hp1).oper[0]^.typ = Top_Reg) and
-                    (taicpu(hp1).oper[0]^.reg = taicpu(p).oper[1]^.reg))) and
+                    (taicpu(hp1).oper[0]^.reg = taicpu(p).oper[1]^.reg)) or
+                    ((taicpu(hp1).opcode = A_LEA) and
+                    (taicpu(hp1).oper[0]^.ref^.index = taicpu(p).oper[1]^.reg) and
+                    (taicpu(hp1).oper[1]^.reg = taicpu(p).oper[1]^.reg))) and
                   (not GetNextInstruction(hp1,hp2) or
                    not instrReadsFlags(hp2)) Do
               begin
                 TmpBool1 := False;
-                if (taicpu(hp1).oper[0]^.typ = Top_Const) then
+                if taicpu(hp1).opcode=A_LEA then
+                  begin
+                    if (TmpRef.base = NR_NO) and
+                       (taicpu(hp1).oper[0]^.ref^.symbol=nil) and
+                       (taicpu(hp1).oper[0]^.ref^.relsymbol=nil) and
+                       (taicpu(hp1).oper[0]^.ref^.segment=NR_NO) and
+                       ((taicpu(hp1).oper[0]^.ref^.scalefactor=0) or
+                       (taicpu(hp1).oper[0]^.ref^.scalefactor*tmpref.scalefactor<=8)) then
+                      begin
+                        TmpBool1 := True;
+                        TmpBool2 := True;
+                        inc(TmpRef.offset, taicpu(hp1).oper[0]^.ref^.offset);
+                        if taicpu(hp1).oper[0]^.ref^.scalefactor<>0 then
+                          tmpref.scalefactor:=tmpref.scalefactor*taicpu(hp1).oper[0]^.ref^.scalefactor;
+                        TmpRef.base := taicpu(hp1).oper[0]^.ref^.base;
+                        asml.remove(hp1);
+                        hp1.free;
+                      end
+                  end
+                else if (taicpu(hp1).oper[0]^.typ = Top_Const) then
                   begin
                     TmpBool1 := True;
                     TmpBool2 := True;
@@ -2647,14 +2743,15 @@ unit aoptx86;
               then
               begin
                 if not(TmpBool2) and
-                    (taicpu(p).oper[0]^.val = 1) then
+                    (taicpu(p).oper[0]^.val=1) then
                   begin
-                    hp1 := taicpu.Op_reg_reg(A_ADD,taicpu(p).opsize,
+                    hp1:=taicpu.Op_reg_reg(A_ADD,taicpu(p).opsize,
                       taicpu(p).oper[1]^.reg, taicpu(p).oper[1]^.reg)
                   end
                 else
-                  hp1 := taicpu.op_ref_reg(A_LEA, taicpu(p).opsize, TmpRef,
+                  hp1:=taicpu.op_ref_reg(A_LEA, taicpu(p).opsize, TmpRef,
                               taicpu(p).oper[1]^.reg);
+                DebugMsg(SPeepholeOptimization + 'ShlAddLeaSubIncDec2Lea',p);
                 InsertLLItem(p.previous, p.next, hp1);
                 p.free;
                 p := hp1;
@@ -3164,18 +3261,18 @@ unit aoptx86;
            GetLastInstruction(p,hp1) and
            MatchInstruction(hp1,A_MOV,[]) and
            MatchOpType(taicpu(hp1),top_reg,top_reg) and
-           ((taicpu(hp1).oper[1]^.reg = taicpu(p).oper[1]^.reg) or
-            ((taicpu(hp1).opsize=S_L) and (taicpu(p).opsize=S_Q) and SuperRegistersEqual(taicpu(hp1).oper[1]^.reg,taicpu(p).oper[1]^.reg))) then
+           (taicpu(hp1).oper[1]^.reg = taicpu(p).oper[1]^.reg) then
           begin
             TransferUsedRegs(TmpUsedRegs);
-            if not(RegUsedAfterInstruction(taicpu(p).oper[1]^.reg,p,TmpUsedRegs)) then
+            if not(RegUsedAfterInstruction(taicpu(p).oper[1]^.reg,p,TmpUsedRegs)) or
+              ((taicpu(p).ops = 3) and (taicpu(p).oper[1]^.reg=taicpu(p).oper[2]^.reg)) then
               { change
                   mov reg1,reg2
                   imul y,reg2 to imul y,reg1,reg2 }
               begin
                 taicpu(p).ops := 3;
+                taicpu(p).loadreg(2,taicpu(p).oper[1]^.reg);
                 taicpu(p).loadreg(1,taicpu(hp1).oper[0]^.reg);
-                taicpu(p).loadreg(2,taicpu(hp1).oper[1]^.reg);
                 DebugMsg(SPeepholeOptimization + 'MovImul2Imul done',p);
                 asml.remove(hp1);
                 hp1.free;
@@ -3318,49 +3415,44 @@ unit aoptx86;
                   end;
               end;
 
-            if ((hp1.typ = ait_label) and (symbol = tai_label(hp1).labsym))
-                or ((hp1.typ = ait_align) and GetNextInstruction(hp1, hp2) and (hp2.typ = ait_label) and (symbol = tai_label(hp2).labsym)) then
+          { Detect the following:
+              jmp<cond>     @Lbl1
+              jmp           @Lbl2
+              ...
+            @Lbl1:
+              ret
+
+            Change to:
+
+              jmp<inv_cond> @Lbl2
+              ret
+          }
+            if MatchInstruction(hp1, A_JMP, []) then
               begin
-                { If Jcc is immediately followed by the label that it's supposed to jump to, remove it }
-                DebugMsg(SPeepholeOptimization + 'Removed conditional jump whose destination was immediately after it', p);
-                UpdateUsedRegs(hp1);
-
-                TAsmLabel(symbol).decrefs;
-                { if the label refs. reach zero, remove any alignment before the label }
-                if (hp1.typ = ait_align) then
+                hp2 := getlabelwithsym(TAsmLabel(symbol));
+                if Assigned(hp2) and SkipLabels(hp2,hp2) and
+                  MatchInstruction(hp2,A_RET,[S_NO]) then
                   begin
-                    UpdateUsedRegs(hp2);
-                    if (TAsmLabel(symbol).getrefs = 0) then
-                    begin
-                      asml.Remove(hp1);
-                      hp1.Free;
+                    taicpu(p).condition := inverse_cond(taicpu(p).condition);
+
+                    { Change label address to that of the unconditional jump }
+                    taicpu(p).loadoper(0, taicpu(hp1).oper[0]^);
+
+                    TAsmLabel(symbol).DecRefs;
+                    taicpu(hp1).opcode := A_RET;
+                    taicpu(hp1).is_jmp := false;
+                    taicpu(hp1).ops := taicpu(hp2).ops;
+                    case taicpu(hp2).ops of
+                      0:
+                        taicpu(hp1).clearop(0);
+                      1:
+                        taicpu(hp1).loadconst(0,taicpu(hp2).oper[0]^.val);
+                      else
+                        internalerror(2016041302);
                     end;
-                    hp1 := hp2; { Set hp1 to the label }
                   end;
-
-                asml.remove(p);
-                p.free;
-
-                if (TAsmLabel(symbol).getrefs = 0) then
-                  begin
-                    GetNextInstruction(hp1, p); { Instruction following the label }
-                    asml.remove(hp1);
-                    hp1.free;
-
-                    UpdateUsedRegs(p);
-                    Result := True;
-                  end
-                else
-                  begin
-                    { We don't need to set the result to True because we know hp1
-                      is a label and won't trigger any optimisation routines. [Kit] }
-                    p := hp1;
-                  end;
-
-                Exit;
               end;
           end;
-
 {$ifndef i8086}
         if CPUX86_HAS_CMOV in cpu_capabilities[current_settings.cputype] then
           begin
@@ -3397,41 +3489,35 @@ unit aoptx86;
                             GetNextInstruction(hp1,hp1);
                           until not(CanBeCMOV(hp1));
 
-                          { Don't decrement the reference count on the label yet, otherwise
-                            GetNextInstruction might skip over the label if it drops to
-                            zero. }
-                          GetNextInstruction(hp1,hp2);
+                          { Remember what hp1 is in case there's multiple aligns to get rid of }
+                          hp2 := hp1;
+                          repeat
+                            if not Assigned(hp2) then
+                              InternalError(2018062910);
 
-                          { if the label refs. reach zero, remove any alignment before the label }
-                          if (hp1.typ = ait_align) and (hp2.typ = ait_label) then
-                            begin
-                              { Ref = 1 means it will drop to zero }
-                              if (tasmlabel(symbol).getrefs=1) then
+                            case hp2.typ of
+                              ait_label:
+                                { What we expected - break out of the loop (it won't be a dead label at the top of
+                                  a cluster because that was optimised at an earlier stage) }
+                                Break;
+                              ait_align:
+                                { Go to the next entry until a label is found (may be multiple aligns before it) }
                                 begin
-                                  asml.Remove(hp1);
-                                  hp1.Free;
+                                  hp2 := tai(hp2.Next);
+                                  Continue;
                                 end;
-                            end
-                          else
-                            hp2 := hp1;
+                              else
+                                begin
+                                  { Might be a comment or temporary allocation entry }
+                                  if not (hp2.typ in SkipInstr) then
+                                    InternalError(2018062911);
 
-                          if not Assigned(hp2) then
-                            InternalError(2018062910);
-
-                          if (hp2.typ <> ait_label) then
-                            begin
-                              { There's something other than CMOVs here.  Move the original jump
-                                to right before this point, then break out.
-
-                                Originally this was part of the above internal error, but it got
-                                triggered on the bootstrapping process sometimes. Investigate. [Kit] }
-                              asml.remove(p);
-                              asml.insertbefore(p, hp2);
-                              DebugMsg('Jcc/CMOVcc drop-out', p);
-                              UpdateUsedRegs(p);
-                              Result := True;
-                              Exit;
+                                  hp2 := tai(hp2.Next);
+                                  Continue;
+                                end;
                             end;
+
+                          until False;
 
                           { Now we can safely decrement the reference count }
                           tasmlabel(symbol).decrefs;
@@ -3444,10 +3530,7 @@ unit aoptx86;
 
                           { Remove the label if this is its final reference }
                           if (tasmlabel(symbol).getrefs=0) then
-                            begin
-                              asml.remove(hp2);
-                              hp2.free;
-                            end;
+                            StripLabelFast(hp1);
 
                           if Assigned(p) then
                             begin
@@ -3540,20 +3623,11 @@ unit aoptx86;
                                 asml.remove(hp1);
                                 hp1.free;
 
-                                { Remove label xxx (it will have a ref of zero due to the initial check }
-                                if (hp4.typ = ait_align) then
-                                  begin
-                                    { Account for alignment as well }
-                                    GetNextInstruction(hp4, hp1);
-                                    asml.remove(hp1);
-                                    hp1.free;
-                                  end;
-
-                                asml.remove(hp4);
-                                hp4.free;
-
                                 { Now we can safely decrement it }
                                 tasmlabel(symbol).decrefs;
+
+                                { Remove label xxx (it will have a ref of zero due to the initial check }
+                                StripLabelFast(hp4);
 
                                 { remove jmp }
                                 symbol := taicpu(hp2).oper[0]^.ref^.symbol;
@@ -3561,23 +3635,12 @@ unit aoptx86;
                                 asml.remove(hp2);
                                 hp2.free;
 
-                                { Remove label yyy (and the optional alignment) if its reference will fall to zero }
-                                if tasmlabel(symbol).getrefs = 1 then
-                                  begin
-                                    if (hp3.typ = ait_align) then
-                                      begin
-                                        { Account for alignment as well }
-                                        GetNextInstruction(hp3, hp1);
-                                        asml.remove(hp1);
-                                        hp1.free;
-                                      end;
+                                { As before, now we can safely decrement it }
+                                tasmlabel(symbol).decrefs;
 
-                                    asml.remove(hp3);
-                                    hp3.free;
-
-                                    { As before, now we can safely decrement it }
-                                    tasmlabel(symbol).decrefs;
-                                  end;
+                                { Remove label yyy (and the optional alignment) if its reference falls to zero }
+                                if tasmlabel(symbol).getrefs = 0 then
+                                  StripLabelFast(hp3);
 
                                 if Assigned(p) then
                                   begin
