@@ -53,7 +53,7 @@ interface
 implementation
 
   uses
-    cutils,globtype,globals,verbose,systems,
+    cutils,globtype,globals,verbose,systems,fmodule,
     nbas,ncal,nmem,nutils,
     symconst,symbase,symtable,symsym,symdef,
     cgbase,cgobj,cgcpu,cgutils,tgobj,
@@ -285,6 +285,7 @@ procedure ti386tryfinallynode.pass_generate_code;
     oldflowcontrol,tryflowcontrol : tflowcontrol;
     is_safecall: boolean;
     hreg: tregister;
+    sym : tasmsymbol;
   begin
     if (target_info.system<>system_i386_win32) then
       begin
@@ -341,16 +342,22 @@ procedure ti386tryfinallynode.pass_generate_code;
           used_in_proc:=used_in_proc+[RS_EBX,RS_ESI,RS_EDI];
 
         current_asmdata.getjumplabel(exceptlabel);
+        sym:=current_asmdata.RefAsmSymbol('__FPC_except_safecall',AT_FUNCTION);
         emit_scope_start(
-          current_asmdata.RefAsmSymbol('__FPC_except_safecall',AT_FUNCTION),
+          sym,
           exceptlabel
         );
+        current_module.add_extern_asmsym(sym);
       end
     else
-      emit_scope_start(
-        current_asmdata.RefAsmSymbol('__FPC_finally_handler',AT_FUNCTION),
-        current_asmdata.RefAsmSymbol(finalizepi.procdef.mangledname,AT_FUNCTION)
-      );
+      begin
+        sym:=current_asmdata.RefAsmSymbol('__FPC_finally_handler',AT_FUNCTION);
+        emit_scope_start(
+          sym,
+          current_asmdata.RefAsmSymbol(finalizepi.procdef.mangledname,AT_FUNCTION)
+        );
+        current_module.add_extern_asmsym(sym);
+      end;
 
     { try code }
     if assigned(left) then
@@ -463,6 +470,7 @@ procedure ti386tryexceptnode.pass_generate_code;
     hnode : tnode;
     hlist : tasmlist;
     onnodecount : tai_const;
+    sym : tasmsymbol;
   label
     errorexit;
   begin
@@ -519,14 +527,20 @@ procedure ti386tryexceptnode.pass_generate_code;
     if assigned(right) then
       begin
         current_asmdata.getaddrlabel(filterlabel);
+        sym:=current_asmdata.RefAsmSymbol('__FPC_on_handler',AT_FUNCTION);
         emit_scope_start(
-          current_asmdata.RefAsmSymbol('__FPC_on_handler',AT_FUNCTION),
+          sym,
           filterlabel);
+        current_module.add_extern_asmsym(sym);
       end
     else
-      emit_scope_start(
-        current_asmdata.RefAsmSymbol('__FPC_except_handler',AT_FUNCTION),
-        exceptlabel);
+      begin
+        sym:=current_asmdata.RefAsmSymbol('__FPC_except_handler',AT_FUNCTION);
+        emit_scope_start(
+          sym,
+          exceptlabel);
+        current_module.add_extern_asmsym(sym);
+      end;
 
     { set control flow labels for the try block }
     current_procinfo.CurrExitLabel:=exittrylabel;
@@ -593,8 +607,10 @@ procedure ti386tryexceptnode.pass_generate_code;
             if hnode.nodetype<>onn then
               InternalError(2011103101);
             current_asmdata.getjumplabel(onlabel);
-            hlist.concat(tai_const.create_sym(current_asmdata.RefAsmSymbol(tonnode(hnode).excepttype.vmt_mangledname,AT_DATA)));
+            sym:=current_asmdata.RefAsmSymbol(tonnode(hnode).excepttype.vmt_mangledname,AT_DATA,true);
+            hlist.concat(tai_const.create_sym(sym));
             hlist.concat(tai_const.create_sym(onlabel));
+            current_module.add_extern_asmsym(sym);
             cg.a_label(current_asmdata.CurrAsmList,onlabel);
             secondpass(hnode);
             inc(onnodecount.value);
