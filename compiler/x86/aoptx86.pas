@@ -2168,7 +2168,7 @@ unit aoptx86;
                     DebugMsg(SPeepholeOptimization + 'MovOpMov2Op ('+
                           debug_op2str(taicpu(p).opcode)+debug_opsize2str(taicpu(p).opsize)+' '+
                           debug_op2str(taicpu(hp1).opcode)+debug_opsize2str(taicpu(hp1).opsize)+' '+
-                          debug_op2str(taicpu(hp2).opcode)+debug_opsize2str(taicpu(hp2).opsize),p);
+                          debug_op2str(taicpu(hp2).opcode)+debug_opsize2str(taicpu(hp2).opsize)+')',p);
                     taicpu(hp1).changeopsize(taicpu(hp2).opsize);
                     {
                       ->
@@ -2247,8 +2247,8 @@ unit aoptx86;
                           debug_op2str(taicpu(hp2).opcode)+debug_opsize2str(taicpu(hp2).opsize)+')',p);
                     { limit size of constants as well to avoid assembler errors, but
                       check opsize to avoid overflow when left shifting the 1 }
-                    if (taicpu(p).oper[0]^.typ=top_const) and (topsize2memsize[taicpu(hp2).opsize]<=4) then
-                      taicpu(p).oper[0]^.val:=taicpu(p).oper[0]^.val and ((qword(1) shl (topsize2memsize[taicpu(hp2).opsize]*8))-1);
+                    if (taicpu(p).oper[0]^.typ=top_const) and (topsize2memsize[taicpu(hp2).opsize]<=63) then
+                      taicpu(p).oper[0]^.val:=taicpu(p).oper[0]^.val and ((qword(1) shl topsize2memsize[taicpu(hp2).opsize])-1);
                     taicpu(hp1).changeopsize(taicpu(hp2).opsize);
                     taicpu(p).changeopsize(taicpu(hp2).opsize);
                     if taicpu(p).oper[0]^.typ=top_reg then
@@ -2940,7 +2940,7 @@ unit aoptx86;
 
     function TX86AsmOptimizer.OptPass1SETcc(var p: tai): boolean;
       var
-        hp1,hp2,next: tai; SetC, JumpC: TAsmCond;
+        hp1,hp2,next: tai; SetC, JumpC: TAsmCond; Unconditional: Boolean;
       begin
         Result:=false;
 
@@ -2974,22 +2974,39 @@ unit aoptx86;
             UpdateUsedRegs(TmpUsedRegs, next);
             UpdateUsedRegs(TmpUsedRegs, tai(hp1.next));
 
-            asml.Remove(hp1);
-            hp1.Free;
-
             JumpC := taicpu(hp2).condition;
+            Unconditional := False;
 
             if conditions_equal(JumpC, C_E) then
               SetC := inverse_cond(taicpu(p).condition)
             else if conditions_equal(JumpC, C_NE) then
               SetC := taicpu(p).condition
             else
-              InternalError(2018061400);
+              { We've got something weird here (and inefficent) }
+              begin
+                DebugMsg('DEBUG: Inefficient jump - check code generation', p);
+                SetC := C_NONE;
 
-            if SetC = C_NONE then
-              InternalError(2018061401);
+                { JAE/JNB will always branch (use 'condition_in', since C_AE <> C_NB normally) }
+                if condition_in(C_AE, JumpC) then
+                  Unconditional := True
+                else
+                  { Not sure what to do with this jump - drop out }
+                  Exit;
+              end;
 
-            taicpu(hp2).SetCondition(SetC);
+            asml.Remove(hp1);
+            hp1.Free;
+
+            if Unconditional then
+              MakeUnconditional(taicpu(hp2))
+            else
+              begin
+                if SetC = C_NONE then
+                  InternalError(2018061401);
+
+                taicpu(hp2).SetCondition(SetC);
+              end;
 
             if not RegUsedAfterInstruction(taicpu(p).oper[0]^.reg, hp2, TmpUsedRegs) then
               begin
