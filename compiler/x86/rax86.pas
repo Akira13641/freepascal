@@ -441,7 +441,6 @@ procedure Tx86Instruction.AddReferenceSizes;
   operand is a register }
 var
   operand2,i,j,k : longint;
-  t: topsize;
   s : tasmsymbol;
   so : aint;
   ExistsMemRefNoSize: boolean;
@@ -1906,11 +1905,11 @@ begin
                      asize:=OT_BITS64;
                    OS_F80 :
                      asize:=OT_BITS80;
-                   OS_128,OS_M128,OS_MS128:
+                   OS_128,OS_M128:
                      asize := OT_BITS128;
-                   OS_M256,OS_MS256:
+                   OS_M256:
                      asize := OT_BITS256;
-                   OS_M512,OS_MS512:
+                   OS_M512:
                      asize := OT_BITS512;
                    else
                      ;

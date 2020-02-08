@@ -570,7 +570,7 @@ implementation
         if assigned(srsym) then
           begin
             result:=cloadnode.create(srsym,srsym.owner);
-            if is_object(tabsolutevarsym(srsym).vardef) or is_record(tabsolutevarsym(srsym).vardef) then
+            if is_object(tabstractvarsym(srsym).vardef) or is_record(tabstractvarsym(srsym).vardef) then
               include(tloadnode(result).loadnodeflags,loadnf_load_addr);
           end
         else
@@ -1402,6 +1402,14 @@ implementation
            ((mhs_exceptions in pmhs_flags(arg)^) and
             ((n.nodetype in [derefn,vecn,subscriptn]) or
              ((n.nodetype in [addn,subn,muln,divn,slashn,unaryminusn]) and (n.localswitches*[cs_check_overflow,cs_check_range]<>[]))
+            )
+           ) or
+           ((n.nodetype=loadn) and
+            (
+             ((tloadnode(n).symtableentry.typ=absolutevarsym) and (tabsolutevarsym(tloadnode(n).symtableentry).abstyp=toaddr)) or
+             ((tloadnode(n).symtableentry.typ in [paravarsym,localvarsym,staticvarsym]) and
+               (vo_volatile in tabstractvarsym(tloadnode(n).symtableentry).varoptions)
+             )
             )
            ) then
           result:=fen_norecurse_true;

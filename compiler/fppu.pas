@@ -359,6 +359,7 @@ var
         crc:=ppufile.header.checksum;
         interface_crc:=ppufile.header.interface_checksum;
         indirect_crc:=ppufile.header.indirect_checksum;
+        change_endian:=ppufile.change_endian;
       { Show Debug info }
         if ppufiletime<>-1 then
           Message1(unit_u_ppu_time,filetimestring(ppufiletime))
@@ -2046,7 +2047,9 @@ var
              begin
                { When we don't have any data stored yet there
                  is nothing to resolve }
-               if interface_compiled then
+               if interface_compiled and
+                 { it makes no sense to re-resolve the unit if it is already finally compiled }
+                 not(state=ms_compiled) then
                  begin
                    Message1(unit_u_reresolving_unit,modulename^);
                    tstoredsymtable(globalsymtable).deref(false);

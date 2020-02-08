@@ -2460,7 +2460,7 @@ implementation
            assigned(tprocdef(defowner).struct) and
            (tprocdef(defowner).owner.defowner=tprocdef(defowner).struct) and
            (
-            not(m_delphi in current_settings.modeswitches) or
+            not(m_duplicate_names in current_settings.modeswitches) or
             is_object(tprocdef(defowner).struct)
            ) then
           result:=tprocdef(defowner).struct.symtable.checkduplicate(hashedid,sym);
@@ -4263,10 +4263,8 @@ implementation
 
     function search_best_objectpascal_helper(const name: string;pd : tdef;contextclassh : tabstractrecorddef;out srsym: tsym;out srsymtable: tsymtable):boolean;
       var
-        s : string;
         list : TFPObjectList;
         i : integer;
-        st : tsymtable;
         odef : tobjectdef;
       begin
         result:=false;
@@ -4287,7 +4285,6 @@ implementation
 
     function search_last_objectpascal_helper(pd : tdef;contextclassh : tabstractrecorddef;out odef : tobjectdef):boolean;
       var
-        s : string;
         list : TFPObjectList;
         i : integer;
       begin

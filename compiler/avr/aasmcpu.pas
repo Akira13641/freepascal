@@ -454,7 +454,10 @@ implementation
                               begin
                                 current_asmdata.getjumplabel(l);
                                 list.insertafter(tai_label.create(l),curtai);
-                                list.insertafter(taicpu.op_sym(A_JMP,taicpu(curtai).oper[0]^.ref^.symbol),curtai);
+                                if CPUAVR_HAS_JMP_CALL in cpu_capabilities[current_settings.cputype] then
+                                  list.insertafter(taicpu.op_sym(A_JMP,taicpu(curtai).oper[0]^.ref^.symbol),curtai)
+                                else
+                                  list.insertafter(taicpu.op_sym(A_RJMP,taicpu(curtai).oper[0]^.ref^.symbol),curtai);
                                 taicpu(curtai).oper[0]^.ref^.symbol:=l;
                                 taicpu(curtai).condition:=inverse_cond(taicpu(curtai).condition);
                                 again:=true;
@@ -471,6 +474,26 @@ implementation
                         begin
                           taicpu(curtai).opcode:=A_RJMP;
                           again:=true;
+                        end;
+                      A_STS:
+                        begin
+                          if (current_settings.cputype=cpu_avrtiny) then
+                            with taicpu(curtai).oper[0]^ do
+                              if (ref^.base=NR_NO) and (ref^.index=NR_NO) and (ref^.symbol=nil) and (ref^.offset<$40) then
+                                begin
+                                  taicpu(curtai).opcode:=A_OUT;
+                                  taicpu(curtai).loadconst(0,ref^.offset);
+                                end;
+                        end;
+                      A_LDS:
+                        begin
+                          if (current_settings.cputype=cpu_avrtiny) then
+                            with taicpu(curtai).oper[1]^ do
+                              if (ref^.base=NR_NO) and (ref^.index=NR_NO) and (ref^.symbol=nil) and (ref^.offset<$40) then
+                                begin
+                                  taicpu(curtai).opcode:=A_IN;
+                                  taicpu(curtai).loadconst(1,ref^.offset)
+                                end;
                         end;
                     end;
                   ait_marker:

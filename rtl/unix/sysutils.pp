@@ -596,7 +596,7 @@ begin
     end;
 end;
 
-Function FileAge (Const FileName : RawByteString): Longint;
+Function FileAge (Const FileName : RawByteString): Int64;
 Var
   Info : Stat;
   SystemFileName: RawByteString;
@@ -662,6 +662,9 @@ var
   SystemFileName: RawByteString;
   isdir: Boolean;
 begin
+  // Do not call fpAccess with an empty name. (Valgrind will complain)
+  if Filename='' then
+    Exit(False);
   SystemFileName:=ToSingleByteFileSystemEncodedFileName(FileName);
   // Don't use stat. It fails on files >2 GB.
   // Access obeys the same access rules, so the result should be the same.
@@ -1041,7 +1044,7 @@ Begin
 End;
 
 
-Function FileGetDate (Handle : Longint) : Longint;
+Function FileGetDate (Handle : Longint) : Int64;
 
 Var Info : Stat;
 
@@ -1053,7 +1056,7 @@ begin
 end;
 
 
-Function FileSetDate (Handle,Age : Longint) : Longint;
+Function FileSetDate (Handle : Longint;Age : Int64) : Longint;
 
 begin
   // Impossible under Linux from FileHandle !!
@@ -1111,7 +1114,7 @@ begin
   Result:=fpAccess(PChar(SystemFileName),W_OK)<>0;
 end;
 
-Function FileSetDate (Const FileName : RawByteString; Age : Longint) : Longint;
+Function FileSetDate (Const FileName : RawByteString; Age : Int64) : Longint;
 var
   SystemFileName: RawByteString;
   t: TUTimBuf;

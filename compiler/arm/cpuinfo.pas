@@ -508,6 +508,9 @@ Type
       ct_nrf52832_xxaa,
       ct_nrf52840_xxaa,
 
+      { Raspberry Pi 2 }
+      ct_raspi2,
+
       // generic Thumb2 target
       ct_thumb2bare
      );
@@ -1025,6 +1028,9 @@ Const
       (controllertypestr:'NRF52832_XXAA'; controllerunitstr:'NRF52'; cputype:cpu_armv7em; fputype:fpu_soft; flashbase:$00000000; flashsize:$00080000; srambase:$20000000; sramsize:$00010000),
       (controllertypestr:'NRF52840_XXAA'; controllerunitstr:'NRF52'; cputype:cpu_armv7em; fputype:fpu_soft; flashbase:$00000000; flashsize:$00080000; srambase:$20000000; sramsize:$00010000),
       
+      { Raspberry Pi 2 }
+      (controllertypestr:'RASPI2'; controllerunitstr:'RASPI2'; cputype:cpu_armv7a; fputype:fpu_vfpv4; flashbase:$00000000; flashsize:$00000000; srambase:$00008000; sramsize:$10000000),
+
       { Bare bones }
       (controllertypestr:'THUMB2_BARE';	controllerunitstr:'THUMB2_BARE';	cputype:cpu_armv7m; fputype:fpu_soft; flashbase:$00000000;	flashsize:$00002000;	srambase:$20000000;	sramsize:$00000400)
     );
@@ -1035,12 +1041,12 @@ Const
                                  genericlevel3optimizerswitches-
                                  { no need to write info about those }
                                  [cs_opt_level1,cs_opt_level2,cs_opt_level3]+
-                                 [cs_opt_regvar,cs_opt_loopunroll,cs_opt_tailrecursion,
+                                 [{$ifndef llvm}cs_opt_regvar,{$endif}cs_opt_loopunroll,cs_opt_tailrecursion,
                                   cs_opt_stackframe,cs_opt_nodecse,cs_opt_reorder_fields,cs_opt_fastmath,cs_opt_forcenostackframe];
 
    level1optimizerswitches = genericlevel1optimizerswitches;
    level2optimizerswitches = genericlevel2optimizerswitches + level1optimizerswitches +
-     [cs_opt_regvar,cs_opt_stackframe,cs_opt_tailrecursion,cs_opt_nodecse];
+     [{$ifndef llvm}cs_opt_regvar,{$endif}cs_opt_stackframe,cs_opt_tailrecursion,cs_opt_nodecse];
    level3optimizerswitches = genericlevel3optimizerswitches + level2optimizerswitches + [cs_opt_scheduler{,cs_opt_loopunroll}];
    level4optimizerswitches = genericlevel4optimizerswitches + level3optimizerswitches + [];
 

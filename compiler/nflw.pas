@@ -110,6 +110,7 @@ interface
           constructor create(l,r,_t1,_t2 : tnode;back : boolean);virtual;reintroduce;
           function pass_typecheck:tnode;override;
           function pass_1 : tnode;override;
+          function makewhileloop : tnode;
           function simplify(forinline : boolean) : tnode;override;
        end;
        tfornodeclass = class of tfornode;
@@ -279,6 +280,10 @@ interface
     function create_enumerator_for_in_loop(hloopvar, hloopbody, expr: tnode;
        enumerator_get, enumerator_move: tprocdef; enumerator_current: tpropertysym): tnode;
     function create_for_in_loop(hloopvar, hloopbody, expr: tnode): tnode;
+
+    { converts all for nodes in the tree into while nodes,
+      returns true if something was converted }
+    function ConvertForLoops(var n : tnode) : Boolean;
 
 implementation
 
@@ -993,6 +998,28 @@ implementation
         current_filepos:=storefilepos;
       end;
 
+
+    function _ConvertForLoops(var n: tnode; arg: pointer): foreachnoderesult;
+      var
+        hp : tnode;
+      begin
+        Result:=fen_false;
+        if n.nodetype=forn then
+          begin
+            Result:=fen_true;
+            hp:=n;
+            n:=tfornode(n).makewhileloop;
+            do_firstpass(n);
+            hp.Free;
+          end;
+      end;
+
+
+    function ConvertForLoops(var n : tnode) : boolean;
+      begin
+        result:=foreachnodestatic(pm_postprocess,n,@_ConvertForLoops,nil);
+      end;
+
 {****************************************************************************
                                  TLOOPNODE
 *****************************************************************************}
@@ -1266,6 +1293,7 @@ implementation
          if (lnf_testatbegin in loopflags) and
             (left.nodetype=ordconstn) and
             (tordconstnode(left).value.uvalue=0) and
+            not(nf_internal in left.flags) and
             assigned(right) then
            CGMessagePos(right.fileinfo,cg_w_unreachable_code);
       end;
@@ -1529,7 +1557,7 @@ implementation
                   else
                     result:=cnothingnode.create;
                   right:=nil;
-                  if warn and assigned(t1) then
+                  if warn and assigned(t1) and not(nf_internal in left.flags) then
                     CGMessagePos(t1.fileinfo,cg_w_unreachable_code);
                end
              else
@@ -1539,7 +1567,7 @@ implementation
                   else
                     result:=cnothingnode.create;
                   t1:=nil;
-                  if warn and assigned(right) then
+                  if warn and assigned(right) and not(nf_internal in left.flags) then
                     CGMessagePos(right.fileinfo,cg_w_unreachable_code);
                end;
           end;
@@ -1663,8 +1691,26 @@ implementation
 
          set_varstate(left,vs_written,[]);
 
+         { Make sure that the loop var and the
+           from and to values are compatible types }
+         if not(m_iso in current_settings.modeswitches) then
+           rangedef:=left.resultdef
+         else
+           rangedef:=get_iso_range_type(left.resultdef);
+
+         check_ranges(right.fileinfo,right,rangedef);
+         inserttypeconv(right,rangedef);
+
+         check_ranges(t1.fileinfo,t1,rangedef);
+         inserttypeconv(t1,rangedef);
+
+         if assigned(t2) then
+           typecheckpass(t2);
+         result:=simplify(false);
+
          { loop unrolling }
-         if (cs_opt_loopunroll in current_settings.optimizerswitches) and
+         if not(assigned(result)) and
+           (cs_opt_loopunroll in current_settings.optimizerswitches) and
            assigned(t2) and
            { statements must be error free }
            not(nf_error in t2.flags) then
@@ -1682,26 +1728,33 @@ implementation
                end;
            end;
 
-         { Make sure that the loop var and the
-           from and to values are compatible types }
-         if not(m_iso in current_settings.modeswitches) then
-           rangedef:=left.resultdef
-         else
-           rangedef:=get_iso_range_type(left.resultdef);
-
-         check_ranges(right.fileinfo,right,rangedef);
-         inserttypeconv(right,rangedef);
-
-         check_ranges(t1.fileinfo,t1,rangedef);
-         inserttypeconv(t1,rangedef);
-
-         if assigned(t2) then
-           typecheckpass(t2);
-         result:=simplify(false);
       end;
 
 
     function tfornode.pass_1 : tnode;
+      begin
+        result:=nil;
+        expectloc:=LOC_VOID;
+
+        firstpass(left);
+        firstpass(right);
+        firstpass(t1);
+
+        if assigned(t2) then
+          firstpass(t2);
+      end;
+
+
+    function checkcontinue(var n:tnode; arg: pointer): foreachnoderesult;
+      begin
+        if n.nodetype=continuen then
+          result:=fen_norecurse_true
+        else
+          result:=fen_false;
+      end;
+
+
+    function tfornode.makewhileloop : tnode;
       var
         ifblock,loopblock : tblocknode;
         ifstatements,statements,loopstatements : tstatementnode;
@@ -1716,6 +1769,8 @@ implementation
         usetotemp : boolean;
         { if the lower bound is not constant, it must be store in a temp before calculating the upper bound }
         usefromtemp : boolean;
+        storefilepos: tfileposinfo;
+        countermin, countermax: Tconstexprint;
 
       procedure iterate_counter(var s : tstatementnode;fw : boolean);
         begin
@@ -1737,39 +1792,52 @@ implementation
 
       begin
         result:=nil;
-        expectloc:=LOC_VOID;
-        fromtemp:=nil;
         totemp:=nil;
+        fromtemp:=nil;
+        storefilepos:=current_filepos;
+        current_filepos:=fileinfo;
 
-        firstpass(left);
-        firstpass(right);
-        firstpass(t1);
+        case left.resultdef.typ of
+          enumdef:
+            begin
+              countermin:=tenumdef(left.resultdef).min;
+              countermax:=tenumdef(left.resultdef).max;
+            end;
+          orddef:
+            begin
+              countermin:=torddef(left.resultdef).low;
+              countermax:=torddef(left.resultdef).high;
+            end;
+          else
+            Internalerror(2020012601);
+        end;
 
-        if assigned(t2) then
-          begin
-            firstpass(t2);
-            if codegenerror then
-              exit;
-          end;
+        { check if we can pred/succ the loop var at the end }
+        do_loopvar_at_end:=(lnf_dont_mind_loopvar_on_exit in loopflags) and
+          is_constnode(right) and is_constnode(t1) and
+          { we cannot test at the end after the pred/succ if the to value is equal to the max./min. value of the counter variable
+            because we either get an overflow/underflow or the compiler removes the check as it never can be true }
 
-        { first set the to value
-          because the count var can be in the expression ! }
-        do_loopvar_at_end:=(lnf_dont_mind_loopvar_on_exit in loopflags)
-        { if the loop is unrolled and there is a jump into the loop,
-          then we can't do the trick with incrementing the loop var only at the
-          end
-        }
-          and not(assigned(entrylabel));
+          { checking just the min./max. value depending on the pure size of the counter does not work as the check might
+            get optimized away
+          not(not(lnf_backward in loopflags) and not(is_signed(left.resultdef)) and (get_ordinal_value(t1)=((1 shl (left.resultdef.size*8))-1))) and
+          not(not(lnf_backward in loopflags) and is_signed(left.resultdef) and (get_ordinal_value(t1)=((1 shl (left.resultdef.size*8-1))-1))) and
+          not((lnf_backward in loopflags) and not(is_signed(left.resultdef)) and (get_ordinal_value(t1)=0)) and
+          not((lnf_backward in loopflags) and is_signed(left.resultdef) and (get_ordinal_value(t1)=(-Tconstexprint(1 shl (left.resultdef.size*8-1))))) and
+          }
 
-         { calculate pointer value and check if changeable and if so
-           load into temporary variable                              }
-         if (right.nodetype<>ordconstn) or (t1.nodetype<>ordconstn) then
-           begin
-             do_loopvar_at_end:=false;
-             needsifblock:=true;
-           end
-         else
-           needsifblock:=false;
+          not(not(lnf_backward in loopflags) and (get_ordinal_value(t1)=countermax)) and
+          not((lnf_backward in loopflags) and (get_ordinal_value(t1)=countermin)) and
+          { neither might the for loop contain a continue statement as continue in a while loop would skip the increment at the end
+            of the loop, this could be overcome by replacing the continue statement with an pred/succ; continue sequence }
+          not(foreachnodestatic(t2,@checkcontinue,nil)) and
+          { if the loop is unrolled and there is a jump into the loop,
+            then we can't do the trick with incrementing the loop var only at the
+            end
+          }
+          not(assigned(entrylabel));
+
+        needsifblock:=not(is_constnode(right)) or not(is_constnode(t1));
 
         { convert the for loop into a while loop }
         result:=internalstatements(statements);
@@ -1892,6 +1960,7 @@ implementation
             addstatement(ifstatements,cwhilerepeatnode.create(caddnode.create_internal(cond,left.getcopy,t1.getcopy),loopblock,false,true));
             addstatement(statements,ifblock);
           end;
+        current_filepos:=storefilepos;
       end;
 
 

@@ -288,7 +288,6 @@ implementation
                    OS_F128:
                      a_loadmm_ref_reg(list,location^.def,location^.def,tmpref,location^.register,mms_movescalar);
                    OS_M8..OS_M128,
-                   OS_MS8..OS_MS128,
                    OS_32..OS_128,
                    { OS_NO is for records of non-power-of-two sizes that have to
                      be passed in MM registers -> never scalar floats }
@@ -696,6 +695,7 @@ implementation
                 pass via a temp in that case
               }
               if (fromsize.typ in [arraydef,recorddef]) or
+                 (is_set(fromsize) and not is_smallset(fromsize)) or
                  (tosize.size in [3,5,6,7]) then
                 begin
                   { store struct/array-in-register to memory }
@@ -775,6 +775,16 @@ implementation
         else
           ;
       end;
+      { inttoptr performs zero extension -> avoid inc(ptr,longint(-1)) from
+        increasing ptr by 4GB on a 64bit platform }
+      if (op=la_inttoptr) and
+         (fromsize.size<tosize.size) then
+        begin
+          tmpreg:=getintregister(list,fromsize);
+          a_load_reg_reg(list,fromsize,ptrsinttype,reg1,tmpreg);
+          reg1:=tmpreg;
+          fromsize:=ptrsinttype;
+        end;
       { reg2 = bitcast fromsize reg1 to tosize }
       list.concat(taillvm.op_reg_size_reg_size(op,reg2,fromsize,reg1,tosize));
     end;
@@ -892,7 +902,9 @@ implementation
       else
         begin
           if ((fromsize.typ in [arraydef,recorddef]) or
-              (tosize.typ in [arraydef,recorddef])) and
+              (tosize.typ in [arraydef,recorddef]) or
+              (is_set(fromsize) and not is_smallset(fromsize)) or
+              (is_set(tosize) and not is_smallset(tosize))) and
              (fromsize<>tosize) then
             begin
               if handle_agg_load_ref_anyreg(list,fromsize,tosize,sref,register,nil) then
@@ -1346,6 +1358,7 @@ implementation
 
   procedure thlcgllvm.gen_fpconstrained_intrinsic(list: TAsmList; const intrinsic: TIDString; fromsize, tosize: tdef; fromreg, toreg: tregister; roundingmode: boolean);
     var
+      exceptmode: ansistring;
       frompara, roundpara, exceptpara, respara: tcgpara;
       tmploc: tlocation;
       pd: tprocdef;
@@ -1370,7 +1383,8 @@ implementation
       gen_load_loc_cgpara(list,fromsize,tmploc,frompara);
       if roundingmode then
         a_load_reg_cgpara(list,llvm_metadatatype,tllvmmetadata.getstringreg('round.dynamic'),roundpara);
-      a_load_reg_cgpara(list,llvm_metadatatype,tllvmmetadata.getstringreg('fpexcept.strict'),exceptpara);
+      exceptmode:=llvm_constrainedexceptmodestring;
+      a_load_reg_cgpara(list,llvm_metadatatype,tllvmmetadata.getstringreg(exceptmode),exceptpara);
       if roundingmode then
         respara:=g_call_system_proc(list,pd,[@frompara,@roundpara,@exceptpara],nil)
       else

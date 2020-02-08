@@ -1072,8 +1072,7 @@ implementation
                    OS_F64,
                    OS_F128:
                      a_loadmm_ref_reg(list,location^.def,location^.def,tmpref,location^.register,mms_movescalar);
-                   OS_M8..OS_M128,
-                   OS_MS8..OS_MS128:
+                   OS_M8..OS_M128:
                      a_loadmm_ref_reg(list,location^.def,location^.def,tmpref,location^.register,nil);
                    else
                      internalerror(2010053101);
@@ -1624,13 +1623,9 @@ implementation
 
   procedure thlcgobj.a_load_const_subsetref(list: TAsmlist; tosubsetsize: tdef; a: tcgint; const sref: tsubsetreference);
     var
-      tmpref: treference;
       tmpsref: tsubsetreference;
       tmpreg: tregister;
       slopt: tsubsetloadopt;
-      newdef: tdef;
-      newbytesize: longint;
-      loval, hival: longint;
     begin
       if sref.bitlen>AIntBits then
         begin
