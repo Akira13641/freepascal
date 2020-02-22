@@ -444,7 +444,7 @@ scan_f_unterminated_multiline_string=02109_F_Unterminated multi-line string begi
 #
 # Parser
 #
-# 03353 is the last used one
+# 03355 is the last used one
 #
 % \section{Parser messages}
 % This section lists all parser messages. The parser takes care of the
@@ -1614,12 +1614,18 @@ parser_e_enumeration_out_of_range=03352_E_Enumeration symbols can only have valu
 parser_w_enumeration_out_of_range=03353_W_Enumeration symbols can only have values in the range of -2^31 to 2^31-1
 % The size of enumeration values is limited to 4 bytes. As the value can be signed, the range
 % of valid values is limited to a signed 32 Bit value (i.e. \var{longint}).
+parser_e_method_for_type_in_other_unit=03354_E_Implementing a method for type "$1" declared in another unit
+% This error occurs if one tries to define a method for a type that is originally declared
+% in a different unit.
+parser_e_generic_constraints_not_allowed_here=03355_E_Generic constraint not allowed here
+% At the current location specifying a constraint is not allowed. For example
+% in delphi mode, a constraint might not be specified in the header of the implementation.
 %
 % \end{description}
 %
 # Type Checking
 #
-# 04126 is the last used one
+# 04127 is the last used one
 #
 % \section{Type checking errors}
 % This section lists all errors that can occur when type checking is
@@ -2059,6 +2065,10 @@ type_e_cblock_callconv=04126_E_C block reference must use CDECL or MWPASCAL call
 % When declaring a C block reference ensure that it uses either the \var{cdecl} or \var{mwpascal}
 % calling convention either by adding the corresponding function directive or by using the
 % \var{\{\$Calling\}} compiler directive.
+type_e_forward_interface_type_does_not_match=04127_E_The interface type of the forward declaration and the declared interface type do not match for interface $1
+% When declaring an interface forward, the interface type must be the same as at the actual declaration of the interface.
+% This is in particular important with regard to the parent interface which implicitly sets the interface type for the
+% child interface.
 % \end{description}
 #
 # Symtable
@@ -2385,7 +2395,7 @@ sym_e_type_must_be_rec_or_object=05098_E_Record or object type expected
 #
 # Codegenerator
 #
-# 06060 is the last used one
+# 06062 is the last used one
 #
 % \section{Code generator messages}
 % This section lists all messages that can be displayed if the code
@@ -2545,6 +2555,14 @@ cg_e_case_missing_value=06059_E_Case statement does not handle ordinal value "$1
 # that this value can be passed to the case statement. This is a compile-time error in ISO and Extended Pascal.
 cg_w_case_incomplete=06060_W_Case statement does not handle all possible cases
 % The case statement does not contain labels for all possible values of the operand, and no else statement is present.
+cg_w_cannot_compile_subroutine=06061_W_The current subroutine "$1" cannot be compiled for the target CPU, creating dummy
+% Some processors have a very limited instruction set so some routines cannot be compiled for them. As it is not always
+% clear from the beginning if a subroutine can be compiled for a certain CPU or not, the compiler checks afterwards
+% and creates a dummy if it cannot compile the subroutine.
+cg_w_interrupt_does_not_save_registers=06062_W_The target CPU does not support preserving the registers in subroutine "$1"
+% Certain processors have no memory (e.~g. avr1 family), so they do not support storing/restoring the used registers
+% in an interrupt routine. The programmer has to ensure that while there is a chance for the interrupt routine being
+% called that no other code depending on registers being preserved is executed.
 %
 % \end{description}
 # EndOfTeX

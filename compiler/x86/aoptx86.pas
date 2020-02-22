@@ -43,6 +43,8 @@ unit aoptx86;
         function GetNextInstructionUsingReg(Current: tai; out Next: tai; reg: TRegister): Boolean;
         function RegModifiedByInstruction(Reg: TRegister; p1: tai): boolean; override;
       protected
+        class function IsMOVZXAcceptable: Boolean; static; inline;
+
         { checks whether loading a new value in reg1 overwrites the entirety of reg2 }
         function Reg1WriteOverwritesReg2Entirely(reg1, reg2: tregister): boolean;
         { checks whether reading the value in reg1 depends on the value of reg2. This
@@ -60,6 +62,15 @@ unit aoptx86;
         { Replaces all references to AOldReg in an instruction to ANewReg,
           except where the register is being written }
         function ReplaceRegisterInInstruction(const p: taicpu; const AOldReg, ANewReg: TRegister): Boolean;
+
+        { Returns true if the reference only refers to ESP or EBP (or their 64-bit equivalents),
+          or writes to a global symbol }
+        class function IsRefSafe(const ref: PReference): Boolean; static; inline;
+
+
+        { Returns true if the given MOV instruction can be safely converted to CMOV }
+        class function CanBeCMOV(p : tai) : boolean; static;
+
 
         function DeepMOVOpt(const p_mov: taicpu; const hp: taicpu): Boolean;
 
@@ -842,6 +853,25 @@ unit aoptx86;
       end;
 {$endif DEBUG_AOPTCPU}
 
+    class function TX86AsmOptimizer.IsMOVZXAcceptable: Boolean; inline;
+      begin
+{$ifdef x86_64}
+        { Always fine on x86-64 }
+        Result := True;
+{$else x86_64}
+        Result :=
+{$ifdef i8086}
+          (current_settings.cputype >= cpu_386) and
+{$endif i8086}
+          (
+            { Always accept if optimising for size }
+            (cs_opt_size in current_settings.optimizerswitches) or
+            { From the Pentium II onwards, MOVZX only takes 1 cycle. [Kit] }
+            (current_settings.optimizecputype >= cpu_Pentium2)
+          );
+{$endif x86_64}
+      end;
+
     function TX86AsmOptimizer.Reg1WriteOverwritesReg2Entirely(reg1, reg2: tregister): boolean;
       begin
         if not SuperRegistersEqual(reg1,reg2) then
@@ -1350,6 +1380,31 @@ unit aoptx86;
                         exit;
                       end
                   end
+              else if ((MatchInstruction(p,[A_MOVAPS,A_VMOVAPS],[S_NO]) and
+                 MatchInstruction(hp1,[A_MOVSS,A_VMOVSS],[S_NO])) or
+                 ((MatchInstruction(p,[A_MOVAPD,A_VMOVAPD],[S_NO]) and
+                 MatchInstruction(hp1,[A_MOVSD,A_VMOVSD],[S_NO])))
+                ) and
+                MatchOperand(taicpu(p).oper[1]^,taicpu(hp1).oper[0]^) then
+                begin
+                  { vmova* reg1,reg2
+                    vmovs* reg2,<op>
+                    dealloc reg2
+                    =>
+                    vmovs* reg1,reg3 }
+                  TransferUsedRegs(TmpUsedRegs);
+                  UpdateUsedRegs(TmpUsedRegs, tai(p.next));
+                  if not(RegUsedAfterInstruction(taicpu(p).oper[1]^.reg,hp1,TmpUsedRegs)) then
+                    begin
+                      DebugMsg(SPeepholeOptimization + '(V)MOVA*(V)MOVS*2(V)MOVS* 1',p);
+                      taicpu(p).opcode:=taicpu(hp1).opcode;
+                      taicpu(p).loadoper(1,taicpu(hp1).oper[1]^);
+                      asml.Remove(hp1);
+                      hp1.Free;
+                      result:=true;
+                      exit;
+                    end
+                end;
             end;
           if GetNextInstructionUsingReg(p,hp1,taicpu(p).oper[1]^.reg) then
             begin
@@ -1627,6 +1682,23 @@ unit aoptx86;
       end;
 
 
+    class function TX86AsmOptimizer.IsRefSafe(const ref: PReference): Boolean; inline;
+      begin
+        Result :=
+          (ref^.index = NR_NO) and
+          (
+{$ifdef x86_64}
+            (
+              (ref^.base = NR_RIP) and
+              (ref^.refaddr in [addr_pic, addr_pic_no_got])
+            ) or
+{$endif x86_64}
+            (ref^.base = NR_STACK_POINTER_REG) or
+            (ref^.base = current_procinfo.framepointer)
+          );
+      end;
+
+
     function TX86AsmOptimizer.DeepMOVOpt(const p_mov: taicpu; const hp: taicpu): Boolean;
       var
         CurrentReg, ReplaceReg: TRegister;
@@ -1787,17 +1859,13 @@ unit aoptx86;
                       change it to a MOVZX instruction when optimising for speed.
                     }
                     if not (cs_opt_size in current_settings.optimizerswitches) and
-{$ifdef i8086}
-                      { MOVZX was only introduced on the 386 }
-                      (current_settings.cputype >= cpu_386) and
-{$endif i8086}
-                      (
-                        (taicpu(hp1).opsize < taicpu(p).opsize)
+                      IsMOVZXAcceptable and
+                      (taicpu(hp1).opsize < taicpu(p).opsize)
 {$ifdef x86_64}
-                        { operations already implicitly set the upper 64 bits to zero }
-                        and not ((taicpu(hp1).opsize = S_L) and (taicpu(p).opsize = S_Q))
+                      { operations already implicitly set the upper 64 bits to zero }
+                      and not ((taicpu(hp1).opsize = S_L) and (taicpu(p).opsize = S_Q))
 {$endif x86_64}
-                      ) then
+                      then
                       begin
                         CurrentReg := taicpu(hp1).oper[1]^.reg;
 
@@ -1805,7 +1873,7 @@ unit aoptx86;
                         case taicpu(p).opsize of
                           S_W:
                             if taicpu(hp1).opsize = S_B then
-                              taicpu(hp1).opsize := S_BW
+                              taicpu(hp1).opsize := S_BL
                             else
                               InternalError(2020012911);
                           S_L{$ifdef x86_64}, S_Q{$endif x86_64}:
@@ -1846,29 +1914,139 @@ unit aoptx86;
         { Depending on the DeepMOVOpt above, it may turn out that hp1 completely
           overwrites the original destination register.  e.g.
 
-          movl   %reg1d,%reg2d
-          movslq %reg1d,%reg2q
+          movl   ###,%reg2d
+          movslq ###,%reg2q (### doesn't have to be the same as the first one)
 
-          In this case, we can remove the MOV
+          In this case, we can remove the MOV (Go to "Mov2Nop 5" below)
         }
         if (taicpu(p).oper[1]^.typ = top_reg) and
           MatchInstruction(hp1, [A_LEA, A_MOV, A_MOVSX, A_MOVZX{$ifdef x86_64}, A_MOVSXD{$endif x86_64}], []) and
-          { The RegInOp check makes sure that movb r/m,%reg1b; movzbl %reg1b,%reg1l"
-            and "movl r/m,%reg1; leal $1(%reg1,%reg2),%reg1" etc. are not incorrectly
-            optimised }
           (taicpu(hp1).oper[1]^.typ = top_reg) and
-          not RegInOp(taicpu(p).oper[1]^.reg, taicpu(hp1).oper[0]^) and
           Reg1WriteOverwritesReg2Entirely(taicpu(hp1).oper[1]^.reg, taicpu(p).oper[1]^.reg) then
-          begin
-            DebugMsg(SPeepholeOptimization + 'Mov2Nop 5 done',p);
-            { take care of the register (de)allocs following p }
-            UpdateUsedRegs(tai(p.next));
-            asml.remove(p);
-            p.free;
-            p:=hp1;
-            Result := True;
-            Exit;
-          end;
+            begin
+              if RegInOp(taicpu(p).oper[1]^.reg, taicpu(hp1).oper[0]^) then
+                begin
+                  if (taicpu(hp1).oper[0]^.typ = top_reg) then
+                    case taicpu(p).oper[0]^.typ of
+                      top_const:
+                        { We have something like:
+
+                          movb   $x,   %regb
+                          movzbl %regb,%regd
+
+                          Change to:
+
+                          movl   $x,   %regd
+                        }
+                        begin
+                          case taicpu(hp1).opsize of
+                            S_BW:
+                              begin
+                                if (taicpu(hp1).opcode = A_MOVSX) and
+                                  (taicpu(p).oper[0]^.val > $7F) then
+                                  taicpu(p).oper[0]^.val := taicpu(p).oper[0]^.val - $100; { Convert to signed }
+
+                                setsubreg(taicpu(p).oper[1]^.reg, R_SUBW);
+                                taicpu(p).opsize := S_W;
+                              end;
+                            S_BL:
+                              begin
+                                if (taicpu(hp1).opcode = A_MOVSX) and
+                                  (taicpu(p).oper[0]^.val > $7F) then
+                                  taicpu(p).oper[0]^.val := taicpu(p).oper[0]^.val - $100; { Convert to signed }
+
+                                setsubreg(taicpu(p).oper[1]^.reg, R_SUBD);
+                                taicpu(p).opsize := S_L;
+                              end;
+                            S_WL:
+                              begin
+                                if (taicpu(hp1).opcode = A_MOVSX) and
+                                  (taicpu(p).oper[0]^.val > $7FFF) then
+                                  taicpu(p).oper[0]^.val := taicpu(p).oper[0]^.val - $10000; { Convert to signed }
+
+                                setsubreg(taicpu(p).oper[1]^.reg, R_SUBD);
+                                taicpu(p).opsize := S_L;
+                              end;
+{$ifdef x86_64}
+                            S_BQ:
+                              begin
+                                if (taicpu(hp1).opcode = A_MOVSX) and
+                                  (taicpu(p).oper[0]^.val > $7F) then
+                                  taicpu(p).oper[0]^.val := taicpu(p).oper[0]^.val - $100; { Convert to signed }
+
+                                setsubreg(taicpu(p).oper[1]^.reg, R_SUBQ);
+                                taicpu(p).opsize := S_Q;
+                              end;
+                            S_WQ:
+                              begin
+                                if (taicpu(hp1).opcode = A_MOVSX) and
+                                  (taicpu(p).oper[0]^.val > $7FFF) then
+                                  taicpu(p).oper[0]^.val := taicpu(p).oper[0]^.val - $10000; { Convert to signed }
+
+                                setsubreg(taicpu(p).oper[1]^.reg, R_SUBQ);
+                                taicpu(p).opsize := S_Q;
+                              end;
+                            S_LQ:
+                              begin
+                                if (taicpu(hp1).opcode = A_MOVSXD) and { Note it's MOVSXD, not MOVSX }
+                                  (taicpu(p).oper[0]^.val > $7FFFFFFF) then
+                                  taicpu(p).oper[0]^.val := taicpu(p).oper[0]^.val - $100000000; { Convert to signed }
+
+                                setsubreg(taicpu(p).oper[1]^.reg, R_SUBQ);
+                                taicpu(p).opsize := S_Q;
+                              end;
+{$endif x86_64}
+                            else
+                              { If hp1 was a MOV instruction, it should have been
+                                optimised already }
+                              InternalError(2020021001);
+                          end;
+                          DebugMsg(SPeepholeOptimization + 'MovMovXX2MovXX 2 done',p);
+                          asml.Remove(hp1);
+                          hp1.Free;
+                          Result := True;
+                          Exit;
+                        end;
+                      top_ref:
+                        { We have something like:
+
+                          movb   mem,  %regb
+                          movzbl %regb,%regd
+
+                          Change to:
+
+                          movzbl mem,  %regd
+                        }
+                        if (taicpu(p).oper[0]^.ref^.refaddr<>addr_full) and (IsMOVZXAcceptable or (taicpu(hp1).opcode<>A_MOVZX)) then
+                          begin
+                            DebugMsg(SPeepholeOptimization + 'MovMovXX2MovXX 1 done',p);
+                            taicpu(hp1).loadref(0,taicpu(p).oper[0]^.ref^);
+                            writeln(taicpu(hp1).oper[0]^.typ);
+                            RemoveCurrentP(p);
+                            Result:=True;
+                            Exit;
+                          end;
+                      else
+                        if (taicpu(hp1).opcode <> A_MOV) and (taicpu(hp1).opcode <> A_LEA) then
+                          { Just to make a saving, since there are no more optimisations with MOVZX and MOVSX/D }
+                          Exit;
+                  end;
+                end
+             { The RegInOp check makes sure that movl r/m,%reg1l; movzbl (%reg1l),%reg1l"
+               and "movl r/m,%reg1; leal $1(%reg1,%reg2),%reg1" etc. are not incorrectly
+               optimised }
+              else
+                begin
+                  DebugMsg(SPeepholeOptimization + 'Mov2Nop 5 done',p);
+                  { take care of the register (de)allocs following p }
+                  UpdateUsedRegs(tai(p.next));
+                  asml.remove(p);
+                  p.free;
+                  p:=hp1;
+                  Result := True;
+                  Exit;
+                end;
+            end;
 
         if (taicpu(hp1).opcode = A_AND) and
           (taicpu(p).oper[1]^.typ = top_reg) and
@@ -1907,7 +2085,8 @@ unit aoptx86;
                     ;
                 end;
               end
-            else if (taicpu(p).oper[1]^.typ = top_reg) and (taicpu(hp1).oper[1]^.typ = top_reg) and
+            else if IsMOVZXAcceptable and
+              (taicpu(p).oper[1]^.typ = top_reg) and (taicpu(hp1).oper[1]^.typ = top_reg) and
               (taicpu(p).oper[0]^.typ <> top_const) and { MOVZX only supports registers and memory, not immediates (use MOV for that!) }
               (getsupreg(taicpu(p).oper[1]^.reg) = getsupreg(taicpu(hp1).oper[1]^.reg))
               then
@@ -2030,25 +2209,7 @@ unit aoptx86;
 
                       with %treg is not used after }
                     case taicpu(p).oper[0]^.typ Of
-                      top_reg:
-                        begin
-                          { change
-                              mov %reg, %treg
-                              mov %treg, y
-
-                              to
-
-                              mov %reg, y
-                          }
-                          if taicpu(hp1).oper[1]^.typ=top_reg then
-                            AllocRegBetween(taicpu(hp1).oper[1]^.reg,p,hp1,usedregs);
-                          taicpu(p).loadOper(1,taicpu(hp1).oper[1]^);
-                          DebugMsg(SPeepholeOptimization + 'MovMov2Mov 2 done',p);
-                          asml.remove(hp1);
-                          hp1.free;
-                          Result:=true;
-                          Exit;
-                        end;
+                      { top_reg is covered by DeepMOVOpt }
                       top_const:
                         begin
                           { change
@@ -2091,43 +2252,26 @@ unit aoptx86;
                             Exit;
                           end;
                       else
-                        { Do nothing };
+                        ;
                     end
                   else
-                    { %treg is used afterwards }
-
-                    case taicpu(p).oper[0]^.typ of
-                      top_const:
-                        if
-                          (
-                            not (cs_opt_size in current_settings.optimizerswitches) or
-                            (taicpu(hp1).opsize = S_B)
-                          ) and
-                          (
-                            (taicpu(hp1).oper[1]^.typ = top_reg) or
-                            ((taicpu(p).oper[0]^.val >= low(longint)) and (taicpu(p).oper[0]^.val <= high(longint)))
-                          ) then
-                          begin
-                            DebugMsg(SPeepholeOptimization + debug_operstr(taicpu(hp1).oper[0]^) + ' = $' + debug_tostr(taicpu(p).oper[0]^.val) + '; changed to minimise pipeline stall (MovMov2Mov 6b)',hp1);
-                            taicpu(hp1).loadconst(0, taicpu(p).oper[0]^.val);
-                          end;
-                      top_reg:
-                        begin
-                          DebugMsg(SPeepholeOptimization + debug_operstr(taicpu(hp1).oper[0]^) + ' = ' + debug_regname(taicpu(p).oper[0]^.reg) + '; changed to minimise pipeline stall (MovMov2Mov 6c)',hp1);
-                          AllocRegBetween(taicpu(p).oper[0]^.reg, p, hp1, UsedRegs);
-                          if MatchOperand(taicpu(hp1).oper[1]^, taicpu(p).oper[0]^.reg) then
-                            begin
-                              DebugMsg(SPeepholeOptimization + 'Mov2Nop 2 done',hp1);
-                              asml.remove(hp1);
-                              hp1.free;
-                              Result := True;
-                              Exit;
-                            end;
-                          taicpu(hp1).loadreg(0, taicpu(p).oper[0]^.reg);
-                        end;
-                      else
-                        { Do nothing };
-                    end;
+                    { %treg is used afterwards, but all eventualities
+                      other than the first MOV instruction being a constant
+                      are covered by DeepMOVOpt, so only check for that }
+                    if (taicpu(p).oper[0]^.typ = top_const) and
+                      (
+                        { For MOV operations, a size saving is only made if the register/const is byte-sized }
+                        not (cs_opt_size in current_settings.optimizerswitches) or
+                        (taicpu(hp1).opsize = S_B)
+                      ) and
+                      (
+                        (taicpu(hp1).oper[1]^.typ = top_reg) or
+                        ((taicpu(p).oper[0]^.val >= low(longint)) and (taicpu(p).oper[0]^.val <= high(longint)))
+                      ) then
+                      begin
+                        DebugMsg(SPeepholeOptimization + debug_operstr(taicpu(hp1).oper[0]^) + ' = $' + debug_tostr(taicpu(p).oper[0]^.val) + '; changed to minimise pipeline stall (MovMov2Mov 6b)',hp1);
+                        taicpu(hp1).loadconst(0, taicpu(p).oper[0]^.val);
+                      end;
               end;
             if (taicpu(hp1).oper[0]^.typ = taicpu(p).oper[1]^.typ) and
                (taicpu(hp1).oper[1]^.typ = taicpu(p).oper[0]^.typ) then
@@ -2305,27 +2449,8 @@ unit aoptx86;
                 Result:=true;
                 exit;
               end;
-            {
-              mov*  x,reg1
-              mov*  y,reg1
 
-              to
-
-              mov*  y,reg1
-            }
-            if (taicpu(p).oper[1]^.typ=top_reg) and
-              MatchOperand(taicpu(p).oper[1]^,taicpu(hp1).oper[1]^) and
-              not(RegInOp(taicpu(p).oper[1]^.reg,taicpu(hp1).oper[0]^)) then
-              begin
-                DebugMsg(SPeepholeOptimization + 'MovMov2Mov 4 done',p);
-                { take care of the register (de)allocs following p }
-                UpdateUsedRegs(tai(p.next));
-                asml.remove(p);
-                p.free;
-                p:=hp1;
-                Result:=true;
-                exit;
-              end;
+              { mov x,reg1; mov y,reg1 -> mov y,reg1 is handled by the Mov2Nop 5 optimisation }
           end;
 
         { search further than the next instruction for a mov }
@@ -2473,90 +2598,31 @@ unit aoptx86;
                   Internalerror(2019103001);
               end;
           end;
-        { Change
-           mov %reg1, %reg2
-           xxx %reg2, ???
 
-           to
-
-           mov %reg1, %reg2
-           xxx %reg1, ???
-
-           to avoid a write/read penalty
-        }
-        if MatchOpType(taicpu(p),top_reg,top_reg) and
-           ((MatchInstruction(hp1,A_OR,A_AND,A_TEST,[]) and
-            MatchOperand(taicpu(p).oper[1]^,taicpu(hp1).oper[0]^) and
-            MatchOperand(taicpu(p).oper[1]^,taicpu(hp1).oper[1]^)) or
-            (MatchInstruction(hp1,A_CMP,[]) and
-             MatchOperand(taicpu(p).oper[1]^,taicpu(hp1).oper[1]^) and
-             MatchOpType(taicpu(hp1),top_const,top_reg)
-            )
-           ) then
-           {  we have
-
-              mov %reg1, %reg2
-              test/or/and %reg2, %reg2
-           }
-           begin
-             TransferUsedRegs(TmpUsedRegs);
-             UpdateUsedRegs(TmpUsedRegs, tai(p.next));
-             { reg1 will be used after the first instruction,
-               so update the allocation info                  }
-             AllocRegBetween(taicpu(p).oper[0]^.reg,p,hp1,usedregs);
-             if GetNextInstruction(hp1, hp2) and
-                (hp2.typ = ait_instruction) and
-                taicpu(hp2).is_jmp and
-                not(RegUsedAfterInstruction(taicpu(hp1).oper[1]^.reg, hp1, TmpUsedRegs)) then
-                 { change
-
-                   mov %reg1, %reg2
-                   test/or/and %reg2, %reg2
-                   jxx
-
-                   to
-
-                   test %reg1, %reg1
-                   jxx
-                 }
-                 begin
-                   if taicpu(hp1).opcode<>A_CMP then
-                     taicpu(hp1).loadoper(0,taicpu(p).oper[0]^);
-                   taicpu(hp1).loadoper(1,taicpu(p).oper[0]^);
-                   DebugMsg(SPeepholeOptimization + 'MovTest/Cmp/Or/AndJxx2Test/Cmp/Or/AndJxx done',p);
-                   RemoveCurrentP(p);
-                   Exit;
-                 end
-               else
-                 { change
-
-                   mov %reg1, %reg2
-                   test/or/and %reg2, %reg2
-
-                   to
-
-                   mov %reg1, %reg2
-                   test/or/and %reg1, %reg1
-
-                   }
-                 begin
-                   if taicpu(hp1).opcode<>A_CMP then
-                     taicpu(hp1).loadoper(0,taicpu(p).oper[0]^);
-                   taicpu(hp1).loadoper(1,taicpu(p).oper[0]^);
-                   DebugMsg(SPeepholeOptimization + 'MovTest/Cmp/Or/AndJxx2MovTest/Cmp/Or/AndJxx done',p);
-                 end;
-           end;
         { leave out the mov from "mov reg, x(%frame_pointer); leave/ret" (with
           x >= RetOffset) as it doesn't do anything (it writes either to a
           parameter or to the temporary storage room for the function
           result)
         }
         if IsExitCode(hp1) and
-          MatchOpType(taicpu(p),top_reg,top_ref) and
-          (taicpu(p).oper[1]^.ref^.base = current_procinfo.FramePointer) and
-          not(assigned(current_procinfo.procdef.funcretsym) and
-             (taicpu(p).oper[1]^.ref^.offset < tabstractnormalvarsym(current_procinfo.procdef.funcretsym).localloc.reference.offset)) and
-          (taicpu(p).oper[1]^.ref^.index = NR_NO) then
+          (taicpu(p).oper[1]^.typ = top_ref) and
+          (taicpu(p).oper[1]^.ref^.index = NR_NO) and
+          (
+            (
+              (taicpu(p).oper[1]^.ref^.base = current_procinfo.FramePointer) and
+              not (
+                assigned(current_procinfo.procdef.funcretsym) and
+                (taicpu(p).oper[1]^.ref^.offset <= tabstractnormalvarsym(current_procinfo.procdef.funcretsym).localloc.reference.offset)
+              )
+            ) or
+            { Also discard writes to the stack that are below the base pointer,
+              as this is temporary storage rather than a function result on the
+              stack, say. }
+            (
+              (taicpu(p).oper[1]^.ref^.base = NR_STACK_POINTER_REG) and
+              (taicpu(p).oper[1]^.ref^.offset < current_procinfo.final_localsize)
+            )
+          ) then
           begin
             asml.remove(p);
             p.free;
@@ -4012,32 +4078,6 @@ unit aoptx86;
               end;
           end
         else if MatchOpType(taicpu(p),top_reg,top_reg) and
-{$ifdef x86_64}
-          MatchInstruction(hp1,[A_MOV,A_MOVZX,A_MOVSX,A_MOVSXD],[]) and
-{$else x86_64}
-          MatchInstruction(hp1,A_MOV,A_MOVZX,A_MOVSX,[]) and
-{$endif x86_64}
-          MatchOpType(taicpu(hp1),top_ref,top_reg) and
-          ((taicpu(hp1).oper[0]^.ref^.base = taicpu(p).oper[1]^.reg)
-           or
-           (taicpu(hp1).oper[0]^.ref^.index = taicpu(p).oper[1]^.reg)
-            ) and
-          (getsupreg(taicpu(hp1).oper[1]^.reg) = getsupreg(taicpu(p).oper[1]^.reg)) then
-          { mov reg1, reg2
-            mov/zx/sx (reg2, ..), reg2      to   mov/zx/sx (reg1, ..), reg2}
-          begin
-            if (taicpu(hp1).oper[0]^.ref^.base = taicpu(p).oper[1]^.reg) then
-              taicpu(hp1).oper[0]^.ref^.base := taicpu(p).oper[0]^.reg;
-            if (taicpu(hp1).oper[0]^.ref^.index = taicpu(p).oper[1]^.reg) then
-              taicpu(hp1).oper[0]^.ref^.index := taicpu(p).oper[0]^.reg;
-            DebugMsg(SPeepholeOptimization + 'MovMovXX2MoVXX 1 done',p);
-            asml.remove(p);
-            p.free;
-            p := hp1;
-            Result:=true;
-            exit;
-          end
-        else if MatchOpType(taicpu(p),top_reg,top_reg) and
           MatchInstruction(hp1, A_SAR, []) then
           begin
             if MatchOperand(taicpu(hp1).oper[0]^, 31) then
@@ -4638,7 +4678,7 @@ unit aoptx86;
       end;
 
 
-    function CanBeCMOV(p : tai) : boolean;
+    class function TX86AsmOptimizer.CanBeCMOV(p : tai) : boolean;
       begin
          CanBeCMOV:=assigned(p) and
            MatchInstruction(p,A_MOV,[S_W,S_L,S_Q]) and
@@ -4648,16 +4688,15 @@ unit aoptx86;
             or ((taicpu(p).oper[0]^.typ = top_ref) and
              (taicpu(p).oper[0]^.ref^.refaddr = addr_no))
            }
-           (MatchOpType(taicpu(p),top_reg,top_reg) or
-            { allow references, but only pure symbols or got rel. addressing with RIP as based,
-              it is not expected that this can cause a seg. violation }
-            (MatchOpType(taicpu(p),top_ref,top_reg) and
-             (((taicpu(p).oper[0]^.ref^.base=NR_NO) and (taicpu(p).oper[0]^.ref^.refaddr=addr_no)){$ifdef x86_64} or
-              ((taicpu(p).oper[0]^.ref^.base=NR_RIP) and (taicpu(p).oper[0]^.ref^.refaddr=addr_pic)){$endif x86_64}
-             ) and
-             (taicpu(p).oper[0]^.ref^.index=NR_NO) and
-             (taicpu(p).oper[0]^.ref^.offset=0)
-            )
+           (taicpu(p).oper[1]^.typ = top_reg) and
+           (
+             (taicpu(p).oper[0]^.typ = top_reg) or
+             { allow references, but only pure symbols or got rel. addressing with RIP as based,
+               it is not expected that this can cause a seg. violation }
+             (
+               (taicpu(p).oper[0]^.typ = top_ref) and
+               IsRefSafe(taicpu(p).oper[0]^.ref)
+             )
            );
       end;
 
@@ -4982,16 +5021,18 @@ unit aoptx86;
     function TX86AsmOptimizer.OptPass1Movx(var p : tai) : boolean;
       var
         hp1,hp2: tai;
+        reg_and_hp1_is_instr: Boolean;
       begin
         result:=false;
-        if (taicpu(p).oper[1]^.typ = top_reg) and
-           GetNextInstruction(p,hp1) and
-           (hp1.typ = ait_instruction) and
-           IsFoldableArithOp(taicpu(hp1),taicpu(p).oper[1]^.reg) and
-           GetNextInstruction(hp1,hp2) and
-           MatchInstruction(hp2,A_MOV,[]) and
-           (taicpu(hp2).oper[0]^.typ = top_reg) and
-           OpsEqual(taicpu(hp2).oper[1]^,taicpu(p).oper[0]^) and
+        reg_and_hp1_is_instr:=(taicpu(p).oper[1]^.typ = top_reg) and
+          GetNextInstruction(p,hp1) and
+          (hp1.typ = ait_instruction);
+        if reg_and_hp1_is_instr and
+          IsFoldableArithOp(taicpu(hp1),taicpu(p).oper[1]^.reg) and
+          GetNextInstruction(hp1,hp2) and
+          MatchInstruction(hp2,A_MOV,[]) and
+          (taicpu(hp2).oper[0]^.typ = top_reg) and
+          OpsEqual(taicpu(hp2).oper[1]^,taicpu(p).oper[0]^) and
 {$ifdef i386}
            { not all registers have byte size sub registers on i386 }
            ((taicpu(hp2).opsize<>S_B) or (getsupreg(taicpu(hp1).oper[0]^.reg) in [RS_EAX, RS_EBX, RS_ECX, RS_EDX])) and
@@ -5049,12 +5090,9 @@ unit aoptx86;
         else if taicpu(p).opcode=A_MOVZX then
           begin
             { removes superfluous And's after movzx's }
-            if (taicpu(p).oper[1]^.typ = top_reg) and
-              GetNextInstruction(p, hp1) and
-              (tai(hp1).typ = ait_instruction) and
+            if reg_and_hp1_is_instr and
               (taicpu(hp1).opcode = A_AND) and
-              (taicpu(hp1).oper[0]^.typ = top_const) and
-              (taicpu(hp1).oper[1]^.typ = top_reg) and
+              MatchOpType(taicpu(hp1),top_const,top_reg) and
               (taicpu(hp1).oper[1]^.reg = taicpu(p).oper[1]^.reg) then
               begin
                 case taicpu(p).opsize Of
@@ -5086,103 +5124,130 @@ unit aoptx86;
                     ;
                 end;
               end;
-            { changes some movzx constructs to faster synonims (all examples
+            { changes some movzx constructs to faster synonyms (all examples
               are given with eax/ax, but are also valid for other registers)}
-            if (taicpu(p).oper[1]^.typ = top_reg) then
-              if (taicpu(p).oper[0]^.typ = top_reg) then
-                case taicpu(p).opsize of
-                  S_BW:
-                    begin
-                      if (getsupreg(taicpu(p).oper[0]^.reg)=getsupreg(taicpu(p).oper[1]^.reg)) and
-                         not(cs_opt_size in current_settings.optimizerswitches) then
-                        {Change "movzbw %al, %ax" to "andw $0x0ffh, %ax"}
-                        begin
-                          taicpu(p).opcode := A_AND;
-                          taicpu(p).changeopsize(S_W);
-                          taicpu(p).loadConst(0,$ff);
-                          DebugMsg(SPeepholeOptimization + 'var7',p);
-                        end
-                      else if GetNextInstruction(p, hp1) and
-                        (tai(hp1).typ = ait_instruction) and
-                        (taicpu(hp1).opcode = A_AND) and
-                        (taicpu(hp1).oper[0]^.typ = top_const) and
-                        (taicpu(hp1).oper[1]^.typ = top_reg) and
-                        (taicpu(hp1).oper[1]^.reg = taicpu(p).oper[1]^.reg) then
-                      { Change "movzbw %reg1, %reg2; andw $const, %reg2"
-                        to "movw %reg1, reg2; andw $(const1 and $ff), %reg2"}
-                        begin
-                          DebugMsg(SPeepholeOptimization + 'var8',p);
-                          taicpu(p).opcode := A_MOV;
-                          taicpu(p).changeopsize(S_W);
-                          setsubreg(taicpu(p).oper[0]^.reg,R_SUBW);
-                          taicpu(hp1).loadConst(0,taicpu(hp1).oper[0]^.val and $ff);
-                        end;
-                    end;
-                  S_BL:
-                    begin
-                      if (getsupreg(taicpu(p).oper[0]^.reg)=getsupreg(taicpu(p).oper[1]^.reg)) and
-                         not(cs_opt_size in current_settings.optimizerswitches) then
-                        { Change "movzbl %al, %eax" to "andl $0x0ffh, %eax" }
-                        begin
-                          taicpu(p).opcode := A_AND;
-                          taicpu(p).changeopsize(S_L);
-                          taicpu(p).loadConst(0,$ff)
-                        end
-                      else if GetNextInstruction(p, hp1) and
-                        (tai(hp1).typ = ait_instruction) and
-                        (taicpu(hp1).opcode = A_AND) and
-                        (taicpu(hp1).oper[0]^.typ = top_const) and
-                        (taicpu(hp1).oper[1]^.typ = top_reg) and
-                        (taicpu(hp1).oper[1]^.reg = taicpu(p).oper[1]^.reg) then
-                        { Change "movzbl %reg1, %reg2; andl $const, %reg2"
-                          to "movl %reg1, reg2; andl $(const1 and $ff), %reg2"}
-                        begin
-                          DebugMsg(SPeepholeOptimization + 'var10',p);
-                          taicpu(p).opcode := A_MOV;
-                          taicpu(p).changeopsize(S_L);
-                          { do not use R_SUBWHOLE
-                            as movl %rdx,%eax
-                            is invalid in assembler PM }
-                          setsubreg(taicpu(p).oper[0]^.reg, R_SUBD);
-                          taicpu(hp1).loadConst(0,taicpu(hp1).oper[0]^.val and $ff);
-                        end
-                    end;
-{$ifndef i8086}
-                  S_WL:
-                    begin
-                      if (getsupreg(taicpu(p).oper[0]^.reg)=getsupreg(taicpu(p).oper[1]^.reg)) and
-                        not(cs_opt_size in current_settings.optimizerswitches) then
-                        { Change "movzwl %ax, %eax" to "andl $0x0ffffh, %eax" }
-                        begin
-                          DebugMsg(SPeepholeOptimization + 'var11',p);
-                          taicpu(p).opcode := A_AND;
-                          taicpu(p).changeopsize(S_L);
-                          taicpu(p).loadConst(0,$ffff);
-                        end
-                      else if GetNextInstruction(p, hp1) and
-                        (tai(hp1).typ = ait_instruction) and
-                        (taicpu(hp1).opcode = A_AND) and
-                        (taicpu(hp1).oper[0]^.typ = top_const) and
-                        (taicpu(hp1).oper[1]^.typ = top_reg) and
-                        (taicpu(hp1).oper[1]^.reg = taicpu(p).oper[1]^.reg) then
-                        { Change "movzwl %reg1, %reg2; andl $const, %reg2"
-                          to "movl %reg1, reg2; andl $(const1 and $ffff), %reg2"}
-                        begin
-                          DebugMsg(SPeepholeOptimization + 'var12',p);
-                          taicpu(p).opcode := A_MOV;
-                          taicpu(p).changeopsize(S_L);
-                          { do not use R_SUBWHOLE
-                            as movl %rdx,%eax
-                            is invalid in assembler PM }
-                          setsubreg(taicpu(p).oper[0]^.reg, R_SUBD);
-                          taicpu(hp1).loadConst(0,taicpu(hp1).oper[0]^.val and $ffff);
-                        end;
-                    end;
+            if MatchOpType(taicpu(p),top_reg,top_reg) then
+                begin
+                  case taicpu(p).opsize of
+                    { Technically, movzbw %al,%ax cannot be encoded in 32/64-bit mode
+                      (the machine code is equivalent to movzbl %al,%eax), but the
+                      code generator still generates that assembler instruction and
+                      it is silently converted.  This should probably be checked.
+                      [Kit] }
+                    S_BW:
+                      begin
+                        if (getsupreg(taicpu(p).oper[0]^.reg)=getsupreg(taicpu(p).oper[1]^.reg)) and
+                          (
+                            not IsMOVZXAcceptable
+                            { and $0xff,%ax has a smaller encoding but risks a partial write penalty }
+                            or (
+                              (cs_opt_size in current_settings.optimizerswitches) and
+                              (taicpu(p).oper[1]^.reg = NR_AX)
+                            )
+                          ) then
+                          {Change "movzbw %al, %ax" to "andw $0x0ffh, %ax"}
+                          begin
+                            DebugMsg(SPeepholeOptimization + 'var7',p);
+                            taicpu(p).opcode := A_AND;
+                            taicpu(p).changeopsize(S_W);
+                            taicpu(p).loadConst(0,$ff);
+                            Result := True;
+                          end
+                        else if not IsMOVZXAcceptable and
+                          GetNextInstruction(p, hp1) and
+                          (tai(hp1).typ = ait_instruction) and
+                          (taicpu(hp1).opcode = A_AND) and
+                          MatchOpType(taicpu(hp1),top_const,top_reg) and
+                          (taicpu(hp1).oper[1]^.reg = taicpu(p).oper[1]^.reg) then
+                        { Change "movzbw %reg1, %reg2; andw $const, %reg2"
+                          to "movw %reg1, reg2; andw $(const1 and $ff), %reg2"}
+                          begin
+                            DebugMsg(SPeepholeOptimization + 'var8',p);
+                            taicpu(p).opcode := A_MOV;
+                            taicpu(p).changeopsize(S_W);
+                            setsubreg(taicpu(p).oper[0]^.reg,R_SUBW);
+                            taicpu(hp1).loadConst(0,taicpu(hp1).oper[0]^.val and $ff);
+                            Result := True;
+                          end;
+                      end;
+{$ifndef i8086} { movzbl %al,%eax cannot be encoded in 16-bit mode (the machine code is equivalent to movzbw %al,%ax }
+                    S_BL:
+                      begin
+                        if (getsupreg(taicpu(p).oper[0]^.reg)=getsupreg(taicpu(p).oper[1]^.reg)) and
+                          (
+                            not IsMOVZXAcceptable
+                            { and $0xff,%eax has a smaller encoding but risks a partial write penalty }
+                            or (
+                              (cs_opt_size in current_settings.optimizerswitches) and
+                              (taicpu(p).oper[1]^.reg = NR_EAX)
+                            )
+                          ) then
+                          { Change "movzbl %al, %eax" to "andl $0x0ffh, %eax" }
+                          begin
+                            DebugMsg(SPeepholeOptimization + 'var9',p);
+                            taicpu(p).opcode := A_AND;
+                            taicpu(p).changeopsize(S_L);
+                            taicpu(p).loadConst(0,$ff);
+                            Result := True;
+                          end
+                        else if not IsMOVZXAcceptable and
+                          GetNextInstruction(p, hp1) and
+                          (tai(hp1).typ = ait_instruction) and
+                          (taicpu(hp1).opcode = A_AND) and
+                          MatchOpType(taicpu(hp1),top_const,top_reg) and
+                          (taicpu(hp1).oper[1]^.reg = taicpu(p).oper[1]^.reg) then
+                          { Change "movzbl %reg1, %reg2; andl $const, %reg2"
+                            to "movl %reg1, reg2; andl $(const1 and $ff), %reg2"}
+                          begin
+                            DebugMsg(SPeepholeOptimization + 'var10',p);
+                            taicpu(p).opcode := A_MOV;
+                            taicpu(p).changeopsize(S_L);
+                            { do not use R_SUBWHOLE
+                              as movl %rdx,%eax
+                              is invalid in assembler PM }
+                            setsubreg(taicpu(p).oper[0]^.reg, R_SUBD);
+                            taicpu(hp1).loadConst(0,taicpu(hp1).oper[0]^.val and $ff);
+                            Result := True;
+                          end;
+                      end;
 {$endif i8086}
-                  else
-                    ;
+                    S_WL:
+                      if not IsMOVZXAcceptable then
+                        begin
+                          if (getsupreg(taicpu(p).oper[0]^.reg)=getsupreg(taicpu(p).oper[1]^.reg)) then
+                            { Change "movzwl %ax, %eax" to "andl $0x0ffffh, %eax" }
+                            begin
+                              DebugMsg(SPeepholeOptimization + 'var11',p);
+                              taicpu(p).opcode := A_AND;
+                              taicpu(p).changeopsize(S_L);
+                              taicpu(p).loadConst(0,$ffff);
+                              Result := True;
+                            end
+                          else if GetNextInstruction(p, hp1) and
+                            (tai(hp1).typ = ait_instruction) and
+                            (taicpu(hp1).opcode = A_AND) and
+                            (taicpu(hp1).oper[0]^.typ = top_const) and
+                            (taicpu(hp1).oper[1]^.typ = top_reg) and
+                            (taicpu(hp1).oper[1]^.reg = taicpu(p).oper[1]^.reg) then
+                            { Change "movzwl %reg1, %reg2; andl $const, %reg2"
+                              to "movl %reg1, reg2; andl $(const1 and $ffff), %reg2"}
+                            begin
+                              DebugMsg(SPeepholeOptimization + 'var12',p);
+                              taicpu(p).opcode := A_MOV;
+                              taicpu(p).changeopsize(S_L);
+                              { do not use R_SUBWHOLE
+                                as movl %rdx,%eax
+                                is invalid in assembler PM }
+                              setsubreg(taicpu(p).oper[0]^.reg, R_SUBD);
+                              taicpu(hp1).loadConst(0,taicpu(hp1).oper[0]^.val and $ffff);
+                              Result := True;
+                            end;
+                        end;
+                    else
+                      InternalError(2017050705);
+                  end;
                 end
-              else if (taicpu(p).oper[0]^.typ = top_ref) then
+              else if not IsMOVZXAcceptable and (taicpu(p).oper[0]^.typ = top_ref) then
                   begin
                     if GetNextInstruction(p, hp1) and
                       (tai(hp1).typ = ait_instruction) and
@@ -5210,31 +5275,10 @@ unit aoptx86;
                               taicpu(hp1).changeopsize(S_W);
                               taicpu(hp1).loadConst(0,taicpu(hp1).oper[0]^.val and $ff);
                             end;
-{$ifdef x86_64}
-                          S_BQ:
-                            begin
-                              DebugMsg(SPeepholeOptimization + 'var16',p);
-                              taicpu(hp1).changeopsize(S_Q);
-                              taicpu(hp1).loadConst(
-                                0, taicpu(hp1).oper[0]^.val and $ff);
-                            end;
-                          S_WQ:
-                            begin
-                              DebugMsg(SPeepholeOptimization + 'var17',p);
-                              taicpu(hp1).changeopsize(S_Q);
-                              taicpu(hp1).loadConst(0, taicpu(hp1).oper[0]^.val and $ffff);
-                            end;
-                          S_LQ:
-                            begin
-                              DebugMsg(SPeepholeOptimization + 'var18',p);
-                              taicpu(hp1).changeopsize(S_Q);
-                              taicpu(hp1).loadConst(
-                                0, taicpu(hp1).oper[0]^.val and $ffffffff);
-                            end;
-{$endif x86_64}
                           else
                             Internalerror(2017050704)
                         end;
+                        Result := True;
                       end;
                   end;
           end;
@@ -5814,15 +5858,23 @@ unit aoptx86;
             jmp    procname
 
           but do it only on level 4 because it destroys stack back traces
+
+          else if the subroutine is marked as no return, remove the ret
         }
-        if (cs_opt_level4 in current_settings.optimizerswitches) and
+        if ((cs_opt_level4 in current_settings.optimizerswitches) or
+          (po_noreturn in current_procinfo.procdef.procoptions)) and
           GetNextInstruction(p, hp1) and
           MatchInstruction(hp1,A_RET,[S_NO]) and
           (taicpu(hp1).ops=0) then
           begin
-            taicpu(p).opcode := A_JMP;
-            taicpu(p).is_jmp := true;
-            DebugMsg(SPeepholeOptimization + 'CallRet2Jmp done',p);
+            if cs_opt_level4 in current_settings.optimizerswitches then
+              begin
+                taicpu(p).opcode := A_JMP;
+                taicpu(p).is_jmp := true;
+                DebugMsg(SPeepholeOptimization + 'CallRet2Jmp done',p);
+              end
+            else
+              DebugMsg(SPeepholeOptimization + 'CallRet2Call done',p);
             asml.remove(hp1);
             hp1.free;
             Result:=true;

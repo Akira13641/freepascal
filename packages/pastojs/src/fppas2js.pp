@@ -1433,6 +1433,8 @@ type
     procedure CheckAssignExprRangeToCustom(
       const LeftResolved: TPasResolverResult; RValue: TResEvalValue;
       RHS: TPasExpr); override;
+    function CheckAssignCompatibilityClasses(LType, RType: TPasClassType
+      ): integer; override;
     function HasStaticArrayCloneFunc(Arr: TPasArrayType): boolean;
     function IsTGUID(TypeEl: TPasRecordType): boolean; override;
     function GetAssignGUIDString(TypeEl: TPasRecordType; Expr: TPasExpr; out GUID: TGuid): boolean;
@@ -2929,6 +2931,7 @@ var
   ElevatedLocals: TPas2jsElevatedLocals;
 begin
   Result:=0;
+  //if SameText(El.Name,'ci') then writeln('TPas2JSResolver.GetOverloadIndex ',GetObjPath(El),' ',HasOverloadIndex(El,true));
   if not HasOverloadIndex(El,true) then exit;
 
   ThisChanged:=false;
@@ -2949,6 +2952,7 @@ begin
 
       // check elevated locals
       ElevatedLocals:=GetElevatedLocals(Scope);
+      // if SameText(El.Name,'ci') then writeln('TPas2JSResolver.GetOverloadIndex ',GetObjPath(El),' ',Scope.Element.ClassName,' ',ElevatedLocals<>nil);
       if ElevatedLocals<>nil then
         begin
         Identifier:=ElevatedLocals.Find(El.Name);
@@ -3060,6 +3064,7 @@ var
 begin
   // => count overloads in this section
   OverloadIndex:=GetOverloadIndex(El);
+  //if SameText(El.Name,'ci') then writeln('TPas2JSResolver.RenameOverload ',GetObjPath(El),' ',OverloadIndex);
   if OverloadIndex=0 then
     exit(false); // there is no overload
 
@@ -3185,16 +3190,51 @@ begin
 end;
 
 procedure TPas2JSResolver.RenameSubOverloads(Declarations: TFPList);
+
+  procedure RestoreScopeLvl(OldScopeCount: integer);
+  begin
+    while FOverloadScopes.Count>OldScopeCount do
+      PopOverloadScope;
+  end;
+
+  procedure LocalPushClassOrRecScopes(Scope: TPasClassOrRecordScope);
+  var
+    CurScope: TPasClassOrRecordScope;
+    aParent: TPasElement;
+  begin
+    CurScope:=Scope;
+    repeat
+      PushOverloadScope(CurScope);
+      if Scope is TPas2JSClassScope then
+        CurScope:=TPas2JSClassScope(CurScope).AncestorScope
+      else
+        break;
+    until CurScope=nil;
+    aParent:=Scope.Element.Parent;
+    if not (aParent is TPasMembersType) then
+      exit;
+    // nested class -> push parent class scope...
+    CurScope:=aParent.CustomData as TPasClassOrRecordScope;
+    LocalPushClassOrRecScopes(CurScope);
+  end;
+
 var
   i, OldScopeCount: Integer;
   El: TPasElement;
-  Proc: TPasProcedure;
-  ProcScope: TPasProcedureScope;
+  Proc, ImplProc: TPasProcedure;
+  ProcScope, ImplProcScope: TPas2JSProcedureScope;
   ClassScope, aScope: TPasClassScope;
   ClassEl: TPasClassType;
   C: TClass;
   ProcBody: TProcedureBody;
+  IntfSection: TInterfaceSection;
+  ImplSection: TImplementationSection;
 begin
+  IntfSection:=RootElement.InterfaceSection;
+  if IntfSection<>nil then
+    ImplSection:=RootElement.ImplementationSection
+  else
+    ImplSection:=nil;
   for i:=0 to Declarations.Count-1 do
     begin
     El:=TPasElement(Declarations[i]);
@@ -3202,26 +3242,49 @@ begin
     if C.InheritsFrom(TPasProcedure) then
       begin
       Proc:=TPasProcedure(El);
-      ProcScope:=Proc.CustomData as TPasProcedureScope;
+      ProcScope:=Proc.CustomData as TPas2JSProcedureScope;
+
+      // handle each Proc only once, by handling only the DeclProc,
+      // except for DeclProc in the unit interface
       if ProcScope.DeclarationProc<>nil then
-        continue;
-      if ProcScope.ImplProc<>nil then
         begin
-        Proc:=ProcScope.ImplProc;
-        ProcScope:=TPasProcedureScope(Proc.CustomData);
+        // ImplProc with separate declaration
+        if (Proc.Parent=ImplSection)
+        and ProcScope.DeclarationProc.HasParent(IntfSection) then
+          // ImplProc in unit implementation, DeclProc in unit interface
+          // Note: The Unit Impl elements are renamed in a separate run, aka now
+        else
+          continue; // handled via DeclProc
+        end;
+      ImplProc:=ProcScope.ImplProc;
+      if ImplProc<>nil then
+        ImplProcScope:=TPas2JSProcedureScope(ImplProc.CustomData)
+      else
+        begin
+        ImplProc:=Proc;
+        ImplProcScope:=ProcScope;
         end;
       {$IFDEF VerbosePas2JS}
-      //writeln('TPas2JSResolver.RenameSubOverloads Proc=',Proc.Name,' DeclarationProc=',GetObjName(ProcScope.DeclarationProc),' ImplProc=',GetObjName(ProcScope.ImplProc),' ClassScope=',GetObjName(ProcScope.ClassOrRecordScope));
+      //writeln('TPas2JSResolver.RenameSubOverloads ImplProc=',ImplProc.Name,' DeclarationProc=',GetObjName(ProcScope.DeclarationProc),' ClassScope=',GetObjName(ImplProcScope.ClassOrRecordScope));
       {$ENDIF}
-      ProcBody:=Proc.Body;
+      ProcBody:=ImplProc.Body;
       if ProcBody<>nil then
         begin
-        PushOverloadScope(ProcScope);
+        OldScopeCount:=FOverloadScopes.Count;
+        if (ImplProcScope.ClassRecScope<>nil)
+            and not (Proc.Parent is TPasMembersType) then
+          begin
+          // push class scopes
+          LocalPushClassOrRecScopes(ImplProcScope.ClassRecScope);
+          end;
+
+        PushOverloadScope(ImplProcScope);
         // first rename all overloads on this level
         RenameOverloads(ProcBody,ProcBody.Declarations);
         // then process nested procedures
         RenameSubOverloads(ProcBody.Declarations);
         PopOverloadScope;
+        RestoreScopeLvl(OldScopeCount);
         end;
       end
     else if (C=TPasClassType) or (C=TPasRecordType) then
@@ -3253,8 +3316,7 @@ begin
       RenameSubOverloads(TPasMembersType(El).Members);
 
       // restore scope
-      while FOverloadScopes.Count>OldScopeCount do
-        PopOverloadScope;
+      RestoreScopeLvl(OldScopeCount);
       end;
     end;
   {$IFDEF VerbosePas2JS}
@@ -4679,18 +4741,55 @@ end;
 
 function TPas2JSResolver.CheckTypeCastClassInstanceToClass(const FromClassRes,
   ToClassRes: TPasResolverResult; ErrorEl: TPasElement): integer;
+// type cast not related classes
 var
-  ToClass: TPasClassType;
-  ClassScope: TPasClassScope;
+  ToClass, FromClass: TPasClassType;
+  ToClassScope, FromClassScope: TPas2JSClassScope;
+  ToSpecItem, FromSpecItem: TPRSpecializedItem;
+  i: Integer;
+  ToParam, FromParam: TPasType;
 begin
   if FromClassRes.BaseType=btNil then exit(cExact);
   ToClass:=ToClassRes.LoTypeEl as TPasClassType;
-  ClassScope:=ToClass.CustomData as TPasClassScope;
-  if ClassScope.AncestorScope=nil then
+  ToClassScope:=ToClass.CustomData as TPas2JSClassScope;
+  if ToClassScope.AncestorScope=nil then
     // type cast to root class
-    Result:=cTypeConversion+1
-  else
-    Result:=cIncompatible;
+    exit(cTypeConversion+1);
+
+  ToSpecItem:=ToClassScope.SpecializedFromItem;
+  if ToSpecItem<>nil then
+    begin
+    FromClass:=FromClassRes.LoTypeEl as TPasClassType;
+    FromClassScope:=FromClass.CustomData as TPas2JSClassScope;
+    FromSpecItem:=FromClassScope.SpecializedFromItem;
+    if FromSpecItem<>nil then
+      begin
+      // typecast a specialized instance to a specialized type TA<>(aB<>)
+      if FromSpecItem.GenericEl=ToSpecItem.GenericEl then
+        begin
+        // typecast to same generic class
+        Result:=cTypeConversion+1;
+        for i:=0 to length(FromSpecItem.Params)-1 do
+          begin
+          FromParam:=FromSpecItem.Params[i];
+          ToParam:=ToSpecItem.Params[i];
+          if IsSameType(FromParam,ToParam,prraAlias)
+              or IsJSBaseType(FromParam,pbtJSValue)
+              or IsJSBaseType(ToParam,pbtJSValue) then
+            // ok
+          else
+            begin
+            Result:=cIncompatible;
+            break;
+            end;
+          end;
+        if Result<cIncompatible then
+          exit; // e.g. TGen<JSValue>(aGen<Word>) or TGen<Word>(aGen<JSValue>)
+        end;
+      end;
+    end;
+
+  Result:=cIncompatible;
   if ErrorEl=nil then ;
 end;
 
@@ -5580,6 +5679,43 @@ begin
 
   if RHS=nil then ;
   if RValue=nil then ;
+end;
+
+function TPas2JSResolver.CheckAssignCompatibilityClasses(LType,
+  RType: TPasClassType): integer;
+// LType and RType are not related
+var
+  LeftScope, RightScope: TPas2JSClassScope;
+  LeftSpecItem, RightSpecItem: TPRSpecializedItem;
+  i: Integer;
+  LeftParam, RightParam: TPasType;
+begin
+  Result:=cIncompatible;
+  if LType.IsExternal and RType.IsExternal then
+    begin
+    LeftScope:=TPas2JSClassScope(LType.CustomData);
+    RightScope:=TPas2JSClassScope(RType.CustomData);
+    LeftSpecItem:=LeftScope.SpecializedFromItem;
+    RightSpecItem:=RightScope.SpecializedFromItem;
+    if (LeftSpecItem<>nil) and (RightSpecItem<>nil)
+        and (LeftSpecItem.GenericEl=RightSpecItem.GenericEl) then
+      begin
+      Result:=cExact;
+      for i:=0 to length(LeftSpecItem.Params)-1 do
+        begin
+        LeftParam:=LeftSpecItem.Params[i];
+        RightParam:=RightSpecItem.Params[i];
+        if IsSameType(LeftParam,RightParam,prraAlias)
+            or IsJSBaseType(LeftParam,pbtJSValue) then
+          // e.g. TExt<jsvalue>:=aExt<word>
+        else
+          begin
+          Result:=cIncompatible;
+          break;
+          end;
+        end;
+      end;
+    end;
 end;
 
 function TPas2JSResolver.HasStaticArrayCloneFunc(Arr: TPasArrayType): boolean;
@@ -23743,6 +23879,16 @@ begin
   El:=ResolveSimpleAliasType(El);
   if El=nil then
     RaiseInconsistency(20170409172756,El);
+  C:=El.ClassType;
+
+  if C=TPasSpecializeType then
+    begin
+    if not (El.CustomData is TPasSpecializeTypeData) then
+      RaiseInconsistency(20200220113319,El);
+    El:=TPasSpecializeTypeData(El.CustomData).SpecializedType;
+    C:=El.ClassType;
+    end;
+
   if (El=AContext.PasElement) and not Full then
     begin
     // referring to itself
@@ -23755,7 +23901,6 @@ begin
     else
       RaiseNotSupported(ErrorEl,AContext,20170905150746,'cannot typeinfo itself');
     end;
-  C:=El.ClassType;
   if C=TPasUnresolvedSymbolRef then
     begin
     if El.Name='' then

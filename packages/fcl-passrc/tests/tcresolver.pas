@@ -592,7 +592,7 @@ type
     Procedure TestClass_OperatorAsOnNonTypeFail;
     Procedure TestClassAsFuncResult;
     Procedure TestClassTypeCast;
-    Procedure TestClassTypeCastUnrelatedFail;
+    Procedure TestClassTypeCastUnrelatedWarn;
     Procedure TestClass_TypeCastSelf;
     Procedure TestClass_TypeCaseMultipleParamsFail;
     Procedure TestClass_TypeCastAssign;
@@ -853,6 +853,7 @@ type
     Procedure TestAssignProcToFunctionFail;
     Procedure TestAssignProcWrongArgsFail;
     Procedure TestAssignProcWrongArgAccessFail;
+    Procedure TestProcType_SameSignatureObjFPC;
     Procedure TestProcType_AssignNestedProcFail;
     Procedure TestArrayOfProc;
     Procedure TestProcType_Assigned;
@@ -10350,26 +10351,28 @@ begin
   ParseProgram;
 end;
 
-procedure TTestResolver.TestClassTypeCastUnrelatedFail;
+procedure TTestResolver.TestClassTypeCastUnrelatedWarn;
 begin
   StartProgram(false);
-  Add('type');
-  Add('  {#TOBJ}TObject = class');
-  Add('  end;');
-  Add('  {#A}TClassA = class');
-  Add('    id: longint;');
-  Add('  end;');
-  Add('  {#B}TClassB = class');
-  Add('    Name: string;');
-  Add('  end;');
-  Add('var');
-  Add('  {#o}{=TOBJ}o: TObject;');
-  Add('  {#va}{=A}va: TClassA;');
-  Add('  {#vb}{=B}vb: TClassB;');
-  Add('begin');
-  Add('  {@vb}vb:=TClassB({@va}va);');
-  CheckResolverException('Illegal type conversion: "TClassA" to "class TClassB"',
-    nIllegalTypeConversionTo);
+  Add([
+  'type',
+  '  {#TOBJ}TObject = class',
+  '  end;',
+  '  {#A}TClassA = class',
+  '    id: longint;',
+  '  end;',
+  '  {#B}TClassB = class',
+  '    Name: string;',
+  '  end;',
+  'var',
+  '  {#o}{=TOBJ}o: TObject;',
+  '  {#va}{=A}va: TClassA;',
+  '  {#vb}{=B}vb: TClassB;',
+  'begin',
+  '  {@vb}vb:=TClassB({@va}va);']);
+  ParseProgram;
+  CheckResolverHint(mtWarning,nClassTypesAreNotRelatedXY,'Class types "TClassA" and "TClassB" are not related');
+  CheckResolverUnexpectedHints;
 end;
 
 procedure TTestResolver.TestClass_TypeCastSelf;
@@ -15626,6 +15629,25 @@ begin
   Add('  p:=@ProcA;');
   CheckResolverException('Incompatible type arg no. 1: Got "access modifier const", expected "default"',
     nIncompatibleTypeArgNo);
+end;
+
+procedure TTestResolver.TestProcType_SameSignatureObjFPC;
+begin
+  StartProgram(false);
+  Add([
+  '{$mode objfpc}',
+  'type',
+  '  TRun = procedure(a: Word);',
+  '  TRunIt = procedure(a: TRun);',
+  '  TFly = procedure(a: Word);',
+  'procedure FlyIt(a: TFly);',
+  'begin',
+  'end;',
+  'var RunIt: TRunIt;',
+  'begin',
+  '  RunIt:=@FlyIt;',
+  '']);
+  ParseProgram;
 end;
 
 procedure TTestResolver.TestProcType_AssignNestedProcFail;
