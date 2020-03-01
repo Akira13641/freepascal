@@ -262,9 +262,10 @@ unit optloop;
             begin
               if (pi_dfaavailable in current_procinfo.flags) and
                 assigned(loop.optinfo) and
-                assigned(expr.optinfo) then
+                assigned(expr.optinfo) and
+                not(expr.isequal(tfornode(loop).left)) then
                 { no aliasing? }
-                result:=not(tabstractvarsym(tloadnode(expr).symtableentry).addr_taken) and
+                result:=(([nf_write,nf_modify]*expr.flags)=[]) and not(tabstractvarsym(tloadnode(expr).symtableentry).addr_taken) and
                 { no definition in the loop? }
                   not(DFASetIn(tfornode(loop).t2.optinfo^.defsum,expr.optinfo^.index));
             end;
@@ -275,6 +276,8 @@ unit optloop;
             end;
           typeconvn:
             result:=is_loop_invariant(loop,ttypeconvnode(expr).left);
+          addn,subn:
+            result:=is_loop_invariant(loop,taddnode(expr).left) and is_loop_invariant(loop,taddnode(expr).right);
           else
             ;
         end;
