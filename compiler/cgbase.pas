@@ -107,6 +107,10 @@ interface
          ,addr_hi8
          ,addr_hi8_gs
          {$ENDIF}
+         {$IFDEF Z80}
+         ,addr_lo8
+         ,addr_hi8
+         {$ENDIF}
          {$IFDEF i8086}
          ,addr_dgroup      // the data segment group
          ,addr_fardataseg  // the far data segment of the current pascal module (unit or program)
@@ -468,6 +472,8 @@ interface
     { removes shuffling from shuffle, this means that the destenation index of each shuffle is copied to
       the source }
     procedure removeshuffles(var shuffle : tmmshuffle);
+
+    function is_float_cgsize(size: tcgsize): boolean;{$ifdef USEINLINE}inline;{$endif}
 
 implementation
 
@@ -851,6 +857,12 @@ implementation
           exit;
         for i:=1 to shuffle.len do
           shuffle.shuffles[i]:=(shuffle.shuffles[i] and $f) or ((shuffle.shuffles[i] and $f0) shr 4);
+      end;
+
+
+    function is_float_cgsize(size: tcgsize): boolean;{$ifdef USEINLINE}inline;{$endif}
+      begin
+        result:=size in [OS_F32..OS_F128];
       end;
 
 

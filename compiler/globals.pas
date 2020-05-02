@@ -279,6 +279,10 @@ interface
        utilsdirectory : TPathStr;
        { targetname specific prefix used by these utils (options -XP<path>) }
        utilsprefix    : TCmdStr;
+
+       { Suffix for LLVM utilities, e.g. '-7' for clang-7 }
+       llvmutilssuffix     : TCmdStr;
+
        cshared        : boolean;        { pass --shared to ld to link C libs shared}
        Dontlinkstdlibpath: Boolean;     { Don't add std paths to linkpath}
        rlinkpath      : TCmdStr;        { rpath-link linkdir override}
@@ -385,6 +389,8 @@ interface
          they are unique) }
        prop_auto_getter_prefix,
        prop_auto_setter_prefix : string;
+
+       cgbackend: tcgbackend;
 
     const
        Inside_asm_statement : boolean = false;
@@ -555,6 +561,22 @@ interface
         asmcputype : cpu_none;
         fputype : fpu_fd;
   {$endif riscv64}
+  {$ifdef xtensa}
+        cputype : cpu_none;
+        optimizecputype : cpu_none;
+        asmcputype : cpu_none;
+        fputype : fpu_none;
+  {$endif xtensa}
+  {$ifdef z80}
+        cputype : cpu_zilog_z80;
+        optimizecputype : cpu_zilog_z80;
+        { Use cpu_none by default,
+        because using cpu_8086 by default means
+        that we reject any instruction above bare 8086 instruction set
+        for all assembler code PM }
+        asmcputype : cpu_none;
+        fputype : fpu_soft;
+  {$endif z80}
 {$endif not GENERIC_CPU}
         asmmode : asmmode_standard;
 {$ifndef jvm}
@@ -940,6 +962,7 @@ implementation
          Replace(s,'$FPCDATE',date_string);
          Replace(s,'$FPCCPU',target_cpu_string);
          Replace(s,'$FPCOS',target_os_string);
+         Replace(s,'$FPCBINDIR',exepath);
          if (tf_use_8_3 in Source_Info.Flags) or
             (tf_use_8_3 in Target_Info.Flags) then
            Replace(s,'$FPCTARGET',target_os_string)
@@ -1611,6 +1634,7 @@ implementation
         { Utils directory }
         utilsdirectory:='';
         utilsprefix:='';
+        llvmutilssuffix:='';
         cshared:=false;
         rlinkpath:='';
         sysrootpath:='';
@@ -1674,6 +1698,11 @@ implementation
 
 initialization
   allocinitdoneprocs;
+{$ifdef LLVM}
+  cgbackend:=cg_llvm;
+{$else}
+  cgbackend:=cg_fpc;
+{$endif}
 finalization
   freeinitdoneprocs;
 end.

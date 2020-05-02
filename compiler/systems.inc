@@ -54,7 +54,9 @@
              cpu_wasm,                     { 17 }
              cpu_sparc64,                  { 18 }
              cpu_riscv32,                  { 19 }
-             cpu_riscv64                   { 20 }
+             cpu_riscv64,                  { 20 }
+             cpu_xtensa,                   { 21 }
+             cpu_z80                       { 22 }
        );
 
        tasmmode= (asmmode_none
@@ -74,6 +76,7 @@
             ,asmmode_i8086_intel
             ,asmmode_i8086_att
             ,asmmode_arm_gas_unified
+            ,asmmode_xtensa_gas
        );
 
      (* IMPORTANT NOTE:
@@ -188,7 +191,14 @@
              system_riscv32_embedded,   { 99 }
              system_aarch64_android,    { 100 }
              system_x86_64_android,     { 101 }
-             system_x86_64_haiku        { 102 }
+             system_x86_64_haiku,       { 102 }
+             system_xtensa_embedded,    { 103 }
+             system_xtensa_freertos,    { 104 }
+             system_xtensa_linux,       { 105 }
+             system_arm_freertos,       { 106 }
+             system_aarch64_win64,      { 107 }
+             system_z80_embedded,       { 108 }
+             system_z80_zxspectrum      { 109 }
        );
 
      type
@@ -244,6 +254,11 @@
              ,as_wasm_binaryen
              ,as_powerpc_gas_legacy    { for systems with very old GAS versions only, which don't support eg. named sections }
              ,as_llvm_clang
+             ,as_clang_gas
+             ,as_z80asm
+             ,as_sdcc_sdasz80
+             ,as_z80_vasm
+             ,as_z80_rel
        );
 
        tlink = (ld_none,
@@ -254,6 +269,7 @@
              ld_android,
              ld_beos,
              ld_bsd,
+             ld_darwin,
              ld_embedded,
              ld_emx,
              ld_gba,
@@ -281,7 +297,9 @@
              ld_int_netware,
              ld_int_windows,
              ld_int_msdos,
-             ld_int_win16
+             ld_int_win16,
+             ld_freertos,
+             ld_zxspectrum
        );
 
        tar = (ar_none
@@ -291,6 +309,8 @@
             ,ar_gnu_gar
             ,ar_watcom_wlib_omf
             ,ar_watcom_wlib_omf_scripted
+            ,ar_sdcc_sdar
+            ,ar_sdcc_sdar_scripted
        );
 
        tres = (res_none
@@ -326,6 +346,15 @@
               may still be removed by the callee (and then the stack needs to
               be restored by the caller) }
             ,abi_i386_dynalignedstack
+            ,abi_xtensa_windowed
+            ,abi_xtensa_call0
+       );
+
+       tcgbackend = (
+           { default FPC code generator }
+             cg_fpc
+           { LLVM code generator }
+           , cg_llvm
        );
 
      const

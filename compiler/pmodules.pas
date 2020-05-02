@@ -408,7 +408,7 @@ implementation
 {$push}
 {$warn 6018 off} { Unreachable code due to compile time evaluation }
         { CPU targets with microcontroller support can add a controller specific unit }
-        if ControllerSupport and (target_info.system in systems_embedded) and
+        if ControllerSupport and (target_info.system in (systems_embedded+systems_freertos)) and
           (current_settings.controllertype<>ct_none) and
           (embedded_controllers[current_settings.controllertype].controllerunitstr<>'') then
           AddUnit(embedded_controllers[current_settings.controllertype].controllerunitstr);
@@ -1963,7 +1963,7 @@ type
          sc:=nil;
 
          { DLL defaults to create reloc info }
-         if islibrary then
+         if islibrary or (target_info.system in [system_aarch64_win64]) then
            begin
              if not RelocSectionSetExplicitly then
                RelocSection:=true;

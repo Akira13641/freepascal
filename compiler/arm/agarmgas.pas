@@ -116,6 +116,7 @@ unit agarmgas;
             result:='-mfpu=neon-vfpv3 '+result;
           fpu_vfpv3_d16:
             result:='-mfpu=vfpv3-d16 '+result;
+          fpu_fpv4_sp_d16,
           fpu_fpv4_s16:
             result:='-mfpu=fpv4-sp-d16 '+result;
           fpu_vfpv4:
@@ -441,9 +442,10 @@ unit agarmgas;
             asmbin : 'as';
             asmcmd : '-o $OBJ $EXTRAOPT $ASM';
             supported_targets : [system_arm_linux,system_arm_netbsd,system_arm_wince,system_arm_gba,system_arm_palmos,system_arm_nds,
-                                 system_arm_embedded,system_arm_symbian,system_arm_android,system_arm_aros];
+                                 system_arm_embedded,system_arm_symbian,system_arm_android,system_arm_aros,system_arm_freertos];
             flags : [af_needar,af_smartlink_sections];
             labelprefix : '.L';
+            labelmaxlen : -1;
             comment : '# ';
             dollarsign: '$';
           );
@@ -457,6 +459,7 @@ unit agarmgas;
             supported_targets : [system_arm_darwin];
             flags : [af_needar,af_smartlink_sections,af_supports_dwarf,af_stabs_use_function_absolute_addresses];
             labelprefix : 'L';
+            labelmaxlen : -1;
             comment : '# ';
             dollarsign: '$';
           );
@@ -471,6 +474,7 @@ unit agarmgas;
             supported_targets : [system_arm_darwin];
             flags : [af_needar,af_smartlink_sections,af_supports_dwarf];
             labelprefix : 'L';
+            labelmaxlen : -1;
             comment : '# ';
             dollarsign: '$';
           );

@@ -998,10 +998,13 @@ procedure TCustomBufDataset.SetPacketRecords(aValue : integer);
 begin
   if (aValue = -1) or (aValue > 0) then
     begin
-    if (IndexFieldNames='') then
+    if (IndexFieldNames<>'') and (aValue<>-1) then
+      DatabaseError(SInvPacketRecordsValueFieldNames)
+    else
+    if UniDirectional and (aValue=-1) then
+      DatabaseError(SInvPacketRecordsValueUniDirectional)
+    else
       FPacketRecords := aValue
-    else if AValue<>-1 then
-      DatabaseError(SInvPacketRecordsValueFieldNames);
     end
   else
     DatabaseError(SInvPacketRecordsValue);
@@ -1999,7 +2002,8 @@ begin
     begin
     SetUniDirectional(AValue);
     ClearIndexes;
-    FPacketRecords := 1; // temporary
+    if IsUniDirectional then
+      FPacketRecords := 1; // UniDirectional dataset does not allow FPacketRecords<0
     end;
 end;
 
@@ -2607,7 +2611,10 @@ begin
     if assigned(Buffer) then
       begin
       inc(CurrBuff,FFieldBufPositions[Field.FieldNo-1]);
-      Move(CurrBuff^, Buffer^, GetFieldSize(FieldDefs[Field.FieldNo-1]));
+      if Field.IsBlob then // we need GetFieldSize for BLOB but Field.DataSize for others - #36747
+        Move(CurrBuff^, Buffer^, GetFieldSize(FieldDefs[Field.FieldNo-1]))
+      else
+        Move(CurrBuff^, Buffer^, Field.DataSize);
       end;
     Result := True;
     end
@@ -2649,7 +2656,10 @@ begin
     inc(CurrBuff,FFieldBufPositions[Field.FieldNo-1]);
     if assigned(buffer) then
       begin
-      Move(Buffer^, CurrBuff^, GetFieldSize(FieldDefs[Field.FieldNo-1]));
+      if Field.IsBlob then // we need GetFieldSize for BLOB but Field.DataSize for others - #36747
+        Move(Buffer^, CurrBuff^, GetFieldSize(FieldDefs[Field.FieldNo-1]))
+      else
+        Move(Buffer^, CurrBuff^, Field.DataSize);
       unSetFieldIsNull(NullMask,Field.FieldNo-1);
       end
     else
@@ -3536,8 +3546,9 @@ begin
       end
     else
       raise Exception.Create(SErrNoFieldsDefined);
-    FAutoIncValue:=1;
     end;
+  if FAutoIncValue<0 then  
+    FAutoIncValue:=1;
   // When a FileName is set, do not read from this file; we want empty dataset
   AStoreFileName:=FFileName;
   FFileName := '';

@@ -243,7 +243,9 @@ implementation
               s64floattype:=cfloatdef.create(s64real,true);
               s80floattype:=cfloatdef.create(s80real,true);
               sc80floattype:=cfloatdef.create(sc80real,true);
-            end else begin
+            end
+          else
+            begin
               s32floattype:=nil;
               s64floattype:=nil;
               s80floattype:=nil;
@@ -354,6 +356,13 @@ implementation
         sc80floattype:=cfloatdef.create(sc80real,true);
         s64currencytype:=corddef.create(scurrency,low(int64),high(int64),true);
 {$endif avr}
+{$ifdef z80}
+        s32floattype:=cfloatdef.create(s32real,true);
+        s64floattype:=cfloatdef.create(s64real,true);
+        s80floattype:=cfloatdef.create(s80real,true);
+        sc80floattype:=cfloatdef.create(sc80real,true);
+        s64currencytype:=corddef.create(scurrency,low(int64),high(int64),true);
+{$endif z80}
 {$ifdef mips}
         create_fpu_types;
         s64currencytype:=corddef.create(scurrency,low(int64),high(int64),true);
@@ -370,6 +379,10 @@ implementation
         create_fpu_types;
         s64currencytype:=corddef.create(scurrency,low(int64),high(int64),true);
 {$endif jvm}
+{$ifdef xtensa}
+        create_fpu_types;
+        s64currencytype:=corddef.create(scurrency,low(int64),high(int64),true);
+{$endif xtensa}
         set_default_int_types;
         { some other definitions }
         charpointertype:=cpointerdef.create(cansichartype);

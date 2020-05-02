@@ -367,8 +367,8 @@ implementation
             exit;
           end;
 
-        if not(FPUARM_HAS_VFP_SINGLE_ONLY in fpu_capabilities[current_settings.fputype]) or
-          (tfloatdef(resultdef).floattype=s32real) then
+        if (FPUARM_HAS_VFP_DOUBLE in fpu_capabilities[current_settings.fputype]) or
+          is_single(resultdef) then
           exit(inherited pass_1);
 
         result:=nil;
@@ -447,7 +447,7 @@ implementation
                 location.register,left.location.register), pf));
               cg.maybe_check_for_fpu_exception(current_asmdata.CurrAsmList);
             end
-          else if FPUARM_HAS_VFP_SINGLE_ONLY in fpu_capabilities[init_settings.fputype] then
+          else if FPUARM_HAS_VFP_EXTENSION in fpu_capabilities[init_settings.fputype] then
             begin
               hlcg.location_force_mmregscalar(current_asmdata.CurrAsmList,left.location,left.resultdef,true);
               location:=left.location;

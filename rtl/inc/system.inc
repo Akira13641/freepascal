@@ -44,7 +44,9 @@ type
 {$endif FPC_HAS_FEATURE_TEXTIO}
 
 const
-{$ifdef CPUAVR}
+{$if defined(CPUAVR)}
+  STACK_MARGIN = 64;    { Stack size margin for stack checking }
+{$elseif defined(CPUZ80)}
   STACK_MARGIN = 64;    { Stack size margin for stack checking }
 {$else}
   STACK_MARGIN = 16384;    { Stack size margin for stack checking }
@@ -296,6 +298,22 @@ function do_isdevice(handle:thandle):boolean;forward;
   {$i riscv64.inc}  { Case dependent, don't change }
   {$define SYSPROCDEFINED}
 {$endif cpuriscv64}
+
+{$ifdef cpuxtensa}
+  {$ifdef SYSPROCDEFINED}
+    {$Error Can't determine processor type !}
+  {$endif}
+  {$i xtensa.inc}  { Case dependent, don't change }
+  {$define SYSPROCDEFINED}
+{$endif cpuxtensa}
+
+{$ifdef cpuz80}
+  {$ifdef SYSPROCDEFINED}
+    {$Error Can't determine processor type !}
+  {$endif}
+  {$i z80.inc}  { Case dependent, don't change }
+  {$define SYSPROCDEFINED}
+{$endif cpuz80}
 
 {$ifndef SYSPROCDEFINED}
   {$Error Can't determine processor type !}
@@ -1146,7 +1164,7 @@ Begin
   { Finalize units }
   FinalizeUnits;
 
-{$if (defined(MSWINDOWS) and not defined(win16)) or defined(OS2)}
+{$if defined(OS2)}
   { finally release the heap if possible, especially
     important for DLLs.
     Reset the array to nil, and finally also argv itself to

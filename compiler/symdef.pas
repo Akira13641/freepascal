@@ -175,6 +175,9 @@ interface
           function is_generic:boolean;
           { same as above for specializations }
           function is_specialization:boolean;
+          { generic utilities }
+          function is_generic_param_const(index:integer):boolean;inline;
+          function get_generic_param_def(index:integer):tdef;inline;
           { registers this def in the unit's deflist; no-op if already registered }
           procedure register_def; override;
           { add the def to the top of the symtable stack if it's not yet owned
@@ -640,15 +643,16 @@ interface
          pno_mangledname, pno_noparams);
        tprocnameoptions = set of tprocnameoption;
        tproccopytyp = (pc_normal,
+                       { creates a procvardef describing only the code pointer
+                         of a method/netsted function/... }
+                       pc_address_only,
                        { everything except for hidden parameters }
                        pc_normal_no_hidden,
                        { always creates a top-level function, removes all
                          special parameters (self, vmt, parentfp, ...) }
-                       pc_bareproc,
-                       { creates a procvardef describing only the code pointer
-                         of a method/netsted function/... }
-                       pc_address_only
+                       pc_bareproc
                        );
+       tcacheableproccopytyp = pc_normal..pc_address_only;
 
        tabstractprocdef = class(tstoreddef)
           { saves a definition to the return type }
@@ -703,7 +707,7 @@ interface
        tprocvardef = class(tabstractprocdef)
           constructor create(level:byte);virtual;
           { returns a procvardef that represents the address of a proc(var)def }
-          class function getreusableprocaddr(def: tabstractprocdef): tprocvardef; virtual;
+          class function getreusableprocaddr(def: tabstractprocdef; copytyp: tcacheableproccopytyp): tprocvardef; virtual;
           { same as above, but in case the def must never be freed after the
             current module has been compiled -- even if the def was not written
             to the ppu file (for defs in para locations, as we don't reset them
@@ -2356,7 +2360,15 @@ implementation
 {$ifdef x86}
        result:=use_vectorfpu(self);
 {$else x86}
-       result:=(typ=floatdef) and not(cs_fp_emulation in current_settings.moduleswitches);
+       result:=(typ=floatdef) and not(cs_fp_emulation in current_settings.moduleswitches)
+{$ifdef xtensa}
+         and (FPUXTENSA_SINGLE in fpu_capabilities[init_settings.fputype]) and (tfloatdef(self).floattype=s32real)
+{$endif xtensa}
+{$ifdef arm}
+         and (((FPUARM_HAS_VFP_EXTENSION in fpu_capabilities[init_settings.fputype]) and (tfloatdef(self).floattype=s32real)) or
+              (FPUARM_HAS_VFP_DOUBLE in fpu_capabilities[init_settings.fputype]))
+{$endif arm}
+         ;
 {$endif x86}
      end;
 
@@ -2398,11 +2410,29 @@ implementation
          for i:=0 to genericparas.count-1 do
            begin
              sym:=tsym(genericparas[i]);
-             if sym.typ<>symconst.typesym then
+             { sym must be either a type or const }
+             if not (sym.typ in [symconst.typesym,symconst.constsym]) then
                internalerror(2014050903);
              if sym.owner.defowner<>self then
                exit(false);
+             if (sym.typ=symconst.constsym) and (sp_generic_const in sym.symoptions) then
+               exit(false);
            end;
+     end;
+
+
+   function tstoreddef.is_generic_param_const(index:integer):boolean;
+     begin
+       result:=tsym(genericparas[index]).typ=constsym;
+     end;
+
+
+   function tstoreddef.get_generic_param_def(index:integer):tdef;
+     begin
+       if tsym(genericparas[index]).typ=constsym then
+         result:=tconstsym(genericparas[index]).constdef
+       else
+         result:=ttypesym(genericparas[index]).typedef;
      end;
 
 
@@ -2421,9 +2451,12 @@ implementation
            for i:=0 to genericparas.count-1 do
              begin
                sym:=tsym(genericparas[i]);
-               if sym.typ<>symconst.typesym then
+               { sym must be either a type or const }
+               if not (sym.typ in [symconst.typesym,symconst.constsym]) then
                  internalerror(2014050904);
                if sym.owner.defowner<>self then
+                 exit(true);
+               if (sym.typ=symconst.constsym) and (sp_generic_const in sym.symoptions) then
                  exit(true);
              end;
            result:=false;
@@ -4170,7 +4203,7 @@ implementation
          ppufile.getderef(rangedefderef);
          lowrange:=ppufile.getasizeint;
          highrange:=ppufile.getasizeint;
-         ppufile.getset(tppuset1(arrayoptions));
+         ppufile.getset(tppuset2(arrayoptions));
          ppuload_platform(ppufile);
          symtable:=tarraysymtable.create(self);
          tarraysymtable(symtable).ppuload(ppufile)
@@ -4210,7 +4243,7 @@ implementation
          ppufile.putderef(rangedefderef);
          ppufile.putasizeint(lowrange);
          ppufile.putasizeint(highrange);
-         ppufile.putset(tppuset1(arrayoptions));
+         ppufile.putset(tppuset2(arrayoptions));
          writeentry(ppufile,ibarraydef);
          tarraysymtable(symtable).ppuwrite(ppufile);
       end;
@@ -4330,6 +4363,7 @@ implementation
                (ado_IsDynamicArray in arrayoptions) or
                (ado_IsConvertedPointer in arrayoptions) or
                (ado_IsConstructor in arrayoptions) or
+               (ado_IsGeneric in arrayoptions) or
                (highrange<lowrange)
 	      ) and
            (size=-1) then
@@ -4534,7 +4568,8 @@ implementation
             fullparas,
             paramname : ansistring;
             module : tmodule;
-            sym : ttypesym;
+            sym : tsym;
+            def : tdef;
             i : longint;
           begin
             { we want at least enough space for an ellipsis }
@@ -4543,15 +4578,21 @@ implementation
             fullparas:='';
             for i:=0 to genericparas.count-1 do
               begin
-                sym:=ttypesym(genericparas[i]);
+                sym:=tsym(genericparas[i]);
                 module:=find_module_from_symtable(sym.owner);
                 if not assigned(module) then
                   internalerror(2014121202);
-                paramname:=module.realmodulename^;
-                if sym.typedef.typ in [objectdef,recorddef] then
-                  paramname:=paramname+'.'+tabstractrecorddef(sym.typedef).rttiname
+                if not (sym.typ in [constsym,symconst.typesym]) then
+                  internalerror(2020042501);
+                if sym.typ=constsym then
+                  def:=tconstsym(sym).constdef
                 else
-                  paramname:=paramname+'.'+sym.typedef.typename;
+                  def:=ttypesym(sym).typedef;
+                paramname:=module.realmodulename^;
+                if def.typ in [objectdef,recorddef] then
+                  paramname:=paramname+'.'+tabstractrecorddef(def).rttiname
+                else
+                  paramname:=paramname+'.'+def.typename;
                 if length(fullparas)+commacount[i>0]+length(paramname)>maxlength then
                   begin
                     if i>0 then
@@ -5949,7 +5990,7 @@ implementation
         if AValue then
           include(implprocoptions,pio_empty)
         else
-          include(implprocoptions,pio_empty);
+          exclude(implprocoptions,pio_empty);
       end;
 
 
@@ -6958,14 +6999,21 @@ implementation
       end;
 
 
-    class function tprocvardef.getreusableprocaddr(def: tabstractprocdef): tprocvardef;
+    class function tprocvardef.getreusableprocaddr(def: tabstractprocdef; copytyp: tcacheableproccopytyp): tprocvardef;
       var
         res: PHashSetItem;
         oldsymtablestack: tsymtablestack;
+        key: packed record
+          def: tabstractprocdef;
+          copytyp: tcacheableproccopytyp;
+        end;
+
       begin
         if not assigned(current_module) then
           internalerror(2011081301);
-        res:=current_module.procaddrdefs.FindOrAdd(@def,sizeof(def));
+        key.def:=def;
+        key.copytyp:=copytyp;
+        res:=current_module.procaddrdefs.FindOrAdd(@key,sizeof(key));
         if not assigned(res^.Data) then
           begin
             { since these pointerdefs can be reused anywhere in the current
@@ -6977,7 +7025,7 @@ implementation
             { do not simply push/pop current_module.localsymtable, because
               that can have side-effects (e.g., it removes helpers) }
             symtablestack:=nil;
-            result:=tprocvardef(def.getcopyas(procvardef,pc_address_only,''));
+            result:=tprocvardef(def.getcopyas(procvardef,copytyp,''));
             setup_reusable_def(def,result,res,oldsymtablestack);
             { res^.Data may still be nil -> don't overwrite result }
             exit;
@@ -6988,7 +7036,7 @@ implementation
 
     class function tprocvardef.getreusableprocaddr_no_free(def: tabstractprocdef): tprocvardef;
       begin
-        result:=getreusableprocaddr(def);
+        result:=getreusableprocaddr(def,pc_address_only);
         if not result.is_registered then
           include(result.defoptions,df_not_registered_no_free);
       end;

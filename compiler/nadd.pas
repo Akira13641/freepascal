@@ -92,6 +92,10 @@ interface
             the code generation phase.
           }
           function first_addfloat : tnode; virtual;
+          {
+            generates softfloat code for the node
+          }
+          function first_addfloat_soft: tnode; virtual;
        private
           { checks whether a muln can be calculated as a 32bit }
           { * 32bit -> 64 bit                                  }
@@ -480,6 +484,7 @@ implementation
         begin
           result:=getcopy;
           result.resultdef:=nil;
+          result:=ctypeconvnode.create_internal(result,resultdef);
           do_typecheckpass(result);
         end;
 
@@ -779,7 +784,7 @@ implementation
                           { keep the order of val+const else pointer operations might cause an error }
                           hp:=taddnode(left).left;
                           taddnode(left).left:=right;
-                          left:=left.simplify(false);
+                          left:=left.simplify(forinline);
                           right:=left;
                           left:=hp;
                           result:=GetCopyAndTypeCheck;
@@ -1270,7 +1275,7 @@ implementation
                           { full boolean evaluation is only useful if the nodes are not too complex and if no flags/jumps must be converted,
                             further, we need to know the expectloc }
                           if (node_complexity(right)<=2) and
-                            not(left.expectloc in [LOC_FLAGS,LOC_JUMP,LOC_INVALID]) and not(right.expectloc in [LOC_FLAGS,LOC_JUMP,LOC_INVALID]) then
+                            not(left.expectloc in [LOC_JUMP,LOC_INVALID]) and not(right.expectloc in [LOC_JUMP,LOC_INVALID]) then
                             begin
                               { we need to copy the whole tree to force another pass_1 }
                               include(localswitches,cs_full_boolean_eval);
@@ -3623,26 +3628,16 @@ implementation
       end;
 
 
-    function taddnode.first_addfloat : tnode;
+    function taddnode.first_addfloat_soft : tnode;
       var
         procname: string[31];
         { do we need to reverse the result ? }
         notnode : boolean;
         fdef : tdef;
       begin
-        result := nil;
-        notnode := false;
-        fdef := nil;
-        { In non-emulation mode, real opcodes are
-          emitted for floating point values.
-        }
-        if not ((cs_fp_emulation in current_settings.moduleswitches)
-{$ifdef cpufpemu}
-                or (current_settings.fputype=fpu_soft)
-{$endif cpufpemu}
-                ) then
-          exit;
-
+        notnode:=false;
+        result:=nil;
+        fdef:=nil;
         if not(target_info.system in systems_wince) then
           begin
             case tfloatdef(left.resultdef).floattype of
@@ -3741,7 +3736,6 @@ implementation
               else
                 internalerror(2005082602);
             end;
-
           end;
         { cast softfpu result? }
         if not(target_info.system in systems_wince) then
@@ -3762,6 +3756,21 @@ implementation
         { do we need to reverse the result }
         if notnode then
           result:=cnotnode.create(result);
+      end;
+
+    function taddnode.first_addfloat : tnode;
+      begin
+        result := nil;
+        { In non-emulation mode, real opcodes are
+          emitted for floating point values.
+        }
+        if not ((cs_fp_emulation in current_settings.moduleswitches)
+{$ifdef cpufpemu}
+                or (current_settings.fputype=fpu_soft)
+{$endif cpufpemu}
+                ) then
+          exit;
+        result:=first_addfloat_soft
       end;
 
 
@@ -3995,6 +4004,10 @@ implementation
                      result := nil;
 
                      case torddef(resultdef).ordtype of
+                       s8bit:
+                         procname := 'fpc_mul_shortint';
+                       u8bit:
+                         procname := 'fpc_mul_byte';
                        s16bit:
                          procname := 'fpc_mul_integer';
                        u16bit:
@@ -4150,19 +4163,29 @@ implementation
 
          else if is_implicit_pointer_object_type(ld) then
             begin
-              expectloc:=LOC_FLAGS;
+              if ld.size>sizeof(aint) then
+                expectloc:=LOC_JUMP
+              else
+                expectloc:=LOC_FLAGS;
             end
 
          else if (ld.typ=classrefdef) then
             begin
-              expectloc:=LOC_FLAGS;
+              if ld.size>sizeof(aint) then
+                expectloc:=LOC_JUMP
+              else
+                expectloc:=LOC_FLAGS;
             end
 
          { support procvar=nil,procvar<>nil }
          else if ((ld.typ=procvardef) and (rt=niln)) or
                  ((rd.typ=procvardef) and (lt=niln)) then
             begin
-              expectloc:=LOC_FLAGS;
+              if (ld.typ=procvardef) and (tprocvardef(ld).size>sizeof(aint)) or
+                 (rd.typ=procvardef) and (tprocvardef(rd).size>sizeof(aint)) then
+                expectloc:=LOC_JUMP
+              else
+                expectloc:=LOC_FLAGS;
             end
 
 {$ifdef SUPPORT_MMX}
@@ -4184,12 +4207,18 @@ implementation
                   (ld.typ=procvardef) and
                   equal_defs(rd,ld) then
            begin
-             expectloc:=LOC_FLAGS;
+             if tprocvardef(ld).size>sizeof(aint) then
+               expectloc:=LOC_JUMP
+             else
+               expectloc:=LOC_FLAGS;
            end
 
          else if (ld.typ=enumdef) then
            begin
-              expectloc:=LOC_FLAGS;
+              if tenumdef(ld).size>sizeof(aint) then
+                expectloc:=LOC_JUMP
+              else
+                expectloc:=LOC_FLAGS;
            end
 
 {$ifdef SUPPORT_MMX}

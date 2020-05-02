@@ -136,7 +136,9 @@ implementation
        'wasm32',
        'sparc64',
        'riscv32',
-       'riscv64'
+       'riscv64',
+       'xtensa',
+       'z80'
       );
 {$endif}
 
