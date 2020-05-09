@@ -1,6 +1,6 @@
 {
     This file is part of the Free Component Library (FCL)
-    Copyright (c) 2019 by Michael Van Canneyt
+    Copyright (c) 2020 by Michael Van Canneyt
 
     Pascal to Javascript converter class.
 
@@ -548,6 +548,7 @@ type
     pbifnArray_Copy,
     pbifnArray_Equal,
     pbifnArray_Length,
+    pbifnArray_Reference,
     pbifnArray_SetLength,
     pbifnArray_Static_Clone,
     pbifnAs,
@@ -723,6 +724,7 @@ const
     'arrayCopy', // rtl.arrayCopy      pbifnArray_Copy
     'arrayEq', // rtl.arrayEq          pbifnArray_Equal
     'length', // rtl.length
+    'arrayRef', // rtl.arrayRef  pbifnArray_Reference
     'arraySetLength', // rtl.arraySetLength
     '$clone',
     'as', // rtl.as
@@ -1263,7 +1265,7 @@ const
   btAllJSChars = [btChar,btWideChar];
   btAllJSStringAndChars = btAllJSStrings+btAllJSChars;
   btAllJSFloats = [btDouble];
-  btAllJSBooleans = [btBoolean];
+  btAllJSBooleans = [btBoolean,btByteBool,btWordBool,btLongBool];
   btAllJSInteger = [btByte,btShortInt,btWord,btSmallInt,btLongWord,btLongint,
     btIntDouble,btUIntDouble,
     btCurrency  // in pas2js currency is more like an integer, instead of float
@@ -1447,6 +1449,10 @@ type
     procedure AddElementData(Data: TPas2JsElementData); virtual;
     function CreateElementData(DataClass: TPas2JsElementDataClass;
       El: TPasElement): TPas2JsElementData; virtual;
+    // checking compatibilility
+    function CheckEqualCompatibilityUserType(const LHS,
+      RHS: TPasResolverResult; ErrorEl: TPasElement;
+      RaiseOnIncompatible: boolean): integer; override;
     // utility
     procedure RaiseMsg(const Id: TMaxPrecInt; MsgNumber: integer; const Fmt: String;
       Args: array of {$IFDEF pas2js}jsvalue{$ELSE}const{$ENDIF}; ErrorPosEl: TPasElement); override;
@@ -1754,6 +1760,8 @@ type
     Function IsSystemUnit(aModule: TPasModule): boolean; virtual;
     Function HasTypeInfo(El: TPasType; AContext: TConvertContext): boolean; virtual;
     Function IsClassRTTICreatedBefore(aClass: TPasClassType; Before: TPasElement; AConText: TConvertContext): boolean;
+    Function IsExprTemporaryVar(Expr: TPasExpr): boolean; virtual;
+    Function IsExprPropertySetterConst(Expr: TPasExpr; AContext: TConvertContext): boolean; virtual;
     Procedure FindAvailableLocalName(var aName: string; JSExpr: TJSElement);
     Function GetImplJSProcScope(El: TPasElement; Src: TJSSourceElements;
       AContext: TConvertContext): TPas2JSProcedureScope;
@@ -1854,6 +1862,7 @@ type
       AContext: TConvertContext): TJSCallExpression; overload; virtual;
     Function CreateArrayInit(ArrayType: TPasArrayType; Expr: TPasExpr;
       El: TPasElement; AContext: TConvertContext): TJSElement; virtual;
+    Function CreateArrayRef(El: TPasElement; ArrayExpr: TJSElement): TJSElement; virtual;
     Function CreateCmpArrayWithNil(El: TPasElement; JSArray: TJSElement;
       OpCode: TExprOpCode): TJSElement; virtual;
     Function CreateCloneStaticArray(El: TPasElement; ArrTypeEl: TPasArrayType;
@@ -5974,6 +5983,20 @@ begin
   AddElementData(Result);
 end;
 
+function TPas2JSResolver.CheckEqualCompatibilityUserType(const LHS,
+  RHS: TPasResolverResult; ErrorEl: TPasElement; RaiseOnIncompatible: boolean
+  ): integer;
+begin
+  Result:=inherited CheckEqualCompatibilityUserType(LHS,RHS,ErrorEl,RaiseOnIncompatible);
+  if Result=cIncompatible then exit;
+  if (LHS.LoTypeEl is TPasArrayType)
+      and (length(TPasArrayType(LHS.LoTypeEl).Ranges)>0) then
+    RaiseMsg(20200508103543,nXIsNotSupported,sXIsNotSupported,['compare static array'],ErrorEl);
+  if (RHS.LoTypeEl is TPasArrayType)
+      and (length(TPasArrayType(RHS.LoTypeEl).Ranges)>0) then
+    RaiseMsg(20200508103544,nXIsNotSupported,sXIsNotSupported,['compare static array'],ErrorEl);
+end;
+
 procedure TPas2JSResolver.RaiseMsg(const Id: TMaxPrecInt; MsgNumber: integer;
   const Fmt: String; Args: array of {$IFDEF pas2js}jsvalue{$ELSE}const{$ENDIF};
   ErrorPosEl: TPasElement);
@@ -7723,6 +7746,7 @@ var
   JSBinClass: TJSBinaryClass;
   ResolvedEl: TPasResolverResult;
   AInt, BInt: TMaxPrecInt;
+  LArrType: TPasArrayType;
 begin
   {$IFDEF VerbosePas2JS}
   writeln('TPasToJSConverter.ConvertBinaryExpressionRes OpCode="',OpcodeStrings[El.OpCode],'" Left=',GetResolverResultDbg(LeftResolved),' Right=',GetResolverResultDbg(RightResolved));
@@ -8249,6 +8273,7 @@ begin
         end
       else if LeftTypeEl.ClassType=TPasArrayType then
         begin
+        LArrType:=TPasArrayType(LeftTypeEl);
         if RightResolved.BaseType=btNil then
           begin
           // convert "array = nil" to "rtl.length(array) === 0"
@@ -8256,6 +8281,11 @@ begin
           Result:=CreateCmpArrayWithNil(El,A,El.OpCode);
           A:=nil;
           exit;
+          end
+        else if length(LArrType.Ranges)>0 then
+          begin
+          // LHS is static array
+          aResolver.RaiseMsg(20200508102656,nXIsNotSupported,sXIsNotSupported,['compare static array'],TPasElement(El));
           end;
         end;
       end;
@@ -11316,6 +11346,7 @@ begin
         Call.AddArg(ConvertExpression(El.Params[i],AContext));
       if StaticDims<>nil then
         begin
+        Call.AddArg(CreateLiteralJSString(El,'s'));
         for i:=0 to StaticDims.Count-1 do
           Call.AddArg(TJSElement(StaticDims[i]));
         StaticDims.OwnsObjects:=false;
@@ -16539,6 +16570,17 @@ begin
     RaiseInconsistency(20180617233317,Expr);
 end;
 
+function TPasToJSConverter.CreateArrayRef(El: TPasElement; ArrayExpr: TJSElement
+  ): TJSElement;
+var
+  Call: TJSCallExpression;
+begin
+  Call:=CreateCallExpression(El);
+  Call.Expr:=CreateMemberExpression([GetBIName(pbivnRTL),GetBIName(pbifnArray_Reference)]);
+  Call.AddArg(ArrayExpr);
+  Result:=Call;
+end;
+
 function TPasToJSConverter.CreateCmpArrayWithNil(El: TPasElement;
   JSArray: TJSElement; OpCode: TExprOpCode): TJSElement;
 // convert "array = nil" to "rtl.length(array) > 0"
@@ -19573,6 +19615,9 @@ end;
 
 function TPasToJSConverter.ConvertAssignStatement(El: TPasImplAssign;
   AContext: TConvertContext): TJSElement;
+var
+  lRightIsTemp, lRightIsTempValid: boolean;
+  lLeftIsConstSetter, lLeftIsConstSetterValid: boolean;
 
   procedure NotSupported(AssignContext: TAssignContext; id: TMaxPrecInt);
   begin
@@ -19584,6 +19629,28 @@ function TPasToJSConverter.ConvertAssignStatement(El: TPasImplAssign;
     RaiseNotSupported(El,AContext,id,
       GetResolverResultDbg(AssignContext.LeftResolved)+AssignKindNames[El.Kind]
         +GetResolverResultDbg(AssignContext.RightResolved));
+  end;
+
+  function RightIsTemporaryVar: boolean;
+  // returns true if right side is a temporary variable, e.g. a function result
+  begin
+    if not lRightIsTempValid then
+      begin
+      lRightIsTempValid:=true;
+      lRightIsTemp:=IsExprTemporaryVar(El.right);
+      end;
+    Result:=lRightIsTemp;
+  end;
+
+  function LeftIsConstSetter: boolean;
+  // returns true if left side is a property setter with const argument
+  begin
+    if not lLeftIsConstSetterValid then
+      begin
+      lLeftIsConstSetterValid:=true;
+      lLeftIsConstSetter:=IsExprPropertySetterConst(El.left,AContext);
+      end;
+    Result:=lLeftIsConstSetter
   end;
 
   function CreateRangeCheck(AssignSt: TJSElement;
@@ -19656,6 +19723,8 @@ begin
   Result:=nil;
   LHS:=nil;
   aResolver:=AContext.Resolver;
+  lLeftIsConstSetterValid:=false;
+  lRightIsTempValid:=false;
   AssignContext:=TAssignContext.Create(El,nil,AContext);
   try
     if aResolver<>nil then
@@ -19739,7 +19808,8 @@ begin
       end
     else if AssignContext.RightResolved.BaseType=btCurrency then
       begin
-      // double := currency  ->  double := currency/10000
+      // noncurrency := currency
+      // e.g. double := currency  ->  double := currency/10000
       AssignContext.RightSide:=CreateDivideNumber(El,AssignContext.RightSide,10000);
       end
     else if AssignContext.RightResolved.BaseType=btContext then
@@ -19750,11 +19820,29 @@ begin
         if length(TPasArrayType(RightTypeEl).Ranges)>0 then
           begin
           // right side is a static array -> clone
-          {$IFDEF VerbosePas2JS}
-          writeln('TPasToJSConverter.ConvertAssignStatement STATIC ARRAY variable Right={',GetResolverResultDbg(AssignContext.RightResolved),'} AssignContext.RightResolved.IdentEl=',GetObjName(AssignContext.RightResolved.IdentEl));
-          {$ENDIF}
-          AssignContext.RightSide:=CreateCloneStaticArray(El.right,
-                    TPasArrayType(RightTypeEl),AssignContext.RightSide,AContext);
+          if (not RightIsTemporaryVar)
+              and (not LeftIsConstSetter) then
+            begin
+            {$IFDEF VerbosePas2JS}
+            writeln('TPasToJSConverter.ConvertAssignStatement STATIC ARRAY variable Right={',GetResolverResultDbg(AssignContext.RightResolved),'} AssignContext.RightResolved.IdentEl=',GetObjName(AssignContext.RightResolved.IdentEl));
+            {$ENDIF}
+            AssignContext.RightSide:=CreateCloneStaticArray(El.right,
+                   TPasArrayType(RightTypeEl),AssignContext.RightSide,AContext);
+            end;
+          end
+        else if RightTypeEl.Parent.ClassType=TPasArgument then
+         // right side is open array
+        else
+          begin
+          // right side is dynamic array
+          if (AssignContext.LeftResolved.BaseType=btContext)
+              and (AssignContext.LeftResolved.LoTypeEl is TPasArrayType)
+              and (not RightIsTemporaryVar)
+              and (not LeftIsConstSetter) then
+            begin
+            // DynArrayA := DynArrayB  ->  DynArrayA = rtl.arrayRef(DynArrayB)
+            AssignContext.RightSide:=CreateArrayRef(El.right,AssignContext.RightSide);
+            end;
           end;
         end
       else if RightTypeEl.ClassType=TPasClassType then
@@ -20907,6 +20995,69 @@ begin
         exit(true);
       end;
     end;
+end;
+
+function TPasToJSConverter.IsExprTemporaryVar(Expr: TPasExpr): boolean;
+var
+  Params: TParamsExpr;
+  Ref: TResolvedReference;
+  C: TClass;
+begin
+  if Expr.CustomData is TResolvedReference then
+    begin
+    Ref:=TResolvedReference(Expr.CustomData);
+    if [rrfNewInstance,rrfImplicitCallWithoutParams]*Ref.Flags<>[] then
+      exit(true);
+    end;
+
+  C:=Expr.ClassType;
+  if C=TParamsExpr then
+    begin
+    Params:=TParamsExpr(Expr);
+    if Params.Kind=pekFuncParams then
+      exit(true);
+    end
+  else if C.InheritsFrom(TBinaryExpr) then
+    exit(true);
+
+  Result:=false;
+end;
+
+function TPasToJSConverter.IsExprPropertySetterConst(Expr: TPasExpr;
+  AContext: TConvertContext): boolean;
+var
+  Bin: TBinaryExpr;
+  Ref: TResolvedReference;
+  Prop: TPasProperty;
+  Setter, Arg: TPasElement;
+  Args: TFPList;
+begin
+  if Expr is TBinaryExpr then
+    begin
+    Bin:=TBinaryExpr(Expr);
+    if Bin.OpCode=eopSubIdent then
+      Expr:=Bin.right;
+    end;
+  if Expr.CustomData is TResolvedReference then
+    begin
+    Ref:=TResolvedReference(Expr.CustomData);
+    if Ref.Declaration is TPasProperty then
+      begin
+      Prop:=TPasProperty(Ref.Declaration);
+      Setter:=AContext.Resolver.GetPasPropertySetter(Prop);
+      if Setter is TPasProcedure then
+        begin
+        Args:=TPasProcedure(Setter).ProcType.Args;
+        if Args.Count>0 then
+          begin
+          Arg:=TPasElement(Args[Args.Count-1]);
+          if (Arg is TPasArgument) and (TPasArgument(Arg).Access in [argConst,argConstRef]) then
+            exit(true);
+          end;
+        end;
+      end;
+    end;
+  Result:=false;
 end;
 
 procedure TPasToJSConverter.FindAvailableLocalName(var aName: string;
@@ -22476,7 +22627,21 @@ end;
 function TPasToJSConverter.CreateProcCallArg(El: TPasExpr;
   TargetArg: TPasArgument; AContext: TConvertContext): TJSElement;
 var
+  ExprIsTemp, ExprIsTempValid: boolean;
   ExprResolved, ArgResolved: TPasResolverResult;
+
+  function ExprIsTemporaryVar: boolean;
+  // returns true if Expr is a temporary variable, e.g. a function result
+  begin
+    if not ExprIsTempValid then
+      begin
+      ExprIsTempValid:=true;
+      ExprIsTemp:=IsExprTemporaryVar(El);
+      end;
+    Result:=ExprIsTemp;
+  end;
+
+var
   ExprFlags: TPasResolverComputeFlags;
   IsRecord, NeedVar, ArgTypeIsArray: Boolean;
   ArgTypeEl, ExprTypeEl: TPasType;
@@ -22509,6 +22674,7 @@ begin
     Include(ExprFlags,rcNoImplicitProcType);
 
   aResolver.ComputeElement(El,ExprResolved,ExprFlags);
+  ExprIsTempValid:=false;
 
   if (TargetArg.ArgType=nil) and (ExprResolved.LoTypeEl is TPasRecordType) then
     NeedVar:=false; // pass aRecord to UntypedArg -> no reference needed
@@ -22560,7 +22726,8 @@ begin
       begin
       if ArgResolved.BaseType<>btCurrency then
         begin
-        // pass currency to double  -> /10000
+        // pass currency to noncurrency
+        // e.g. pass currency to double  -> /10000
         Result:=CreateDivideNumber(El,Result,10000);
         end;
       end
@@ -22587,10 +22754,24 @@ begin
         begin
         if length(TPasArrayType(ExprTypeEl).Ranges)>0 then
           begin
-          if TargetArg.Access=argDefault then
+          if (TargetArg.Access=argDefault)
+              and not ExprIsTemporaryVar then
             begin
             // pass static array with argDefault  -> clone
             Result:=CreateCloneStaticArray(El,TPasArrayType(ExprTypeEl),Result,AContext);
+            end;
+          end
+        else
+          begin
+          // pass dyn or open array
+          if (TargetArg.Access=argDefault)
+              and (ArgResolved.BaseType=btContext)
+              and (ArgResolved.LoTypeEl is TPasArrayType)
+              and not (ArgResolved.LoTypeEl.Parent is TPasArgument)
+              and not ExprIsTemporaryVar then
+            begin
+            // pass dyn array to argDefault array  -> reference
+            Result:=CreateArrayRef(El,Result);
             end;
           end;
         end
