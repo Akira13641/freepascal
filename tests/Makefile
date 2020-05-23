@@ -869,7 +869,15 @@ endif
 endif
 endif
 endif
+ifdef FPCFPMAKE
+FPCFPMAKE_CPU_TARGET=$(shell $(FPCFPMAKE) -iTP)
+ifeq ($(CPU_TARGET),$(FPCFPMAKE_CPU_TARGET))
+FPCMAKEGCCLIBDIR:=$(GCCLIBDIR)
+endif
+endif
+ifndef FPCMAKEGCCLIBDIR
 FPCMAKEGCCLIBDIR:=$(shell dirname `gcc -print-libgcc-file-name`)
+endif
 ifndef GCCLIBDIR
 CROSSGCC=$(strip $(wildcard $(addsuffix /$(BINUTILSPREFIX)gcc$(SRCEXEEXT),$(SEARCHPATH))))
 ifneq ($(CROSSGCC),)
@@ -2351,7 +2359,7 @@ export LOG:=$(TEST_OUTPUTDIR)/log
 endif
 LOGFILES=$(TEST_OUTPUTDIR)/log $(TEST_OUTPUTDIR)/longlog $(TEST_OUTPUTDIR)/faillist
 LOGEXT=.testlog .tbslog .tbflog .webtbslog .webtbflog
-TESTUNITDIRS=system dos crt objects strings sysutils math sharemem strutils matrix lineinfo ucomplex fpwidestring cpu fmtbcd windows classes character dateutil fpcunit softfpu variants sortbase sortalgs linux unixutil
+TESTUNITDIRS=system dos crt objects strings sysutils math sharemem strutils matrix lineinfo ucomplex fpwidestring cpu fmtbcd windows classes character dateutil fpcunit softfpu variants sortbase sortalgs linux unixutil types
 TESTDIRECTDIRS=
 TESTSUBDIRS=cg cg/variants cg/cdecl cpu16 cpu16/i8086 library opt $(addprefix units/,$(TESTUNITDIRS))
 TESTPACKAGESDIRS=win-base webtbs hash fcl-registry fcl-process zlib fcl-db fcl-xml cocoaint bzip2

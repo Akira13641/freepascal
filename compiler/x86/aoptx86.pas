@@ -130,6 +130,7 @@ unit aoptx86;
         function OptPass1FSTP(var p : tai) : boolean;
         function OptPass1FLD(var p : tai) : boolean;
         function OptPass1Cmp(var p : tai) : boolean;
+        function OptPass1PXor(var p : tai) : boolean;
 
         function OptPass2MOV(var p : tai) : boolean;
         function OptPass2Imul(var p : tai) : boolean;
@@ -1822,7 +1823,7 @@ unit aoptx86;
 
     function TX86AsmOptimizer.OptPass1MOV(var p : tai) : boolean;
     var
-      hp1, hp2: tai;
+      hp1, hp2, hp3: tai;
 
       procedure convert_mov_value(signed_movop: tasmop; max_value: tcgint); inline;
         begin
@@ -2119,6 +2120,31 @@ unit aoptx86;
                   else
                     ;
                 end;
+                if ((taicpu(p).oper[0]^.typ=top_reg) or
+                  ((taicpu(p).oper[0]^.typ=top_ref) and (taicpu(p).oper[0]^.ref^.refaddr<>addr_full))) and
+                  GetNextInstruction(hp1,hp2) and
+                  MatchInstruction(hp2,A_TEST,[taicpu(p).opsize]) and
+                  MatchOperand(taicpu(hp1).oper[1]^,taicpu(hp2).oper[1]^) and
+                  MatchOperand(taicpu(hp2).oper[0]^,taicpu(hp2).oper[1]^) and
+                  GetNextInstruction(hp2,hp3) and
+                  MatchInstruction(hp3,A_Jcc,A_Setcc,[S_NO]) and
+                  (taicpu(hp3).condition in [C_E,C_NE]) then
+                  begin
+                    TransferUsedRegs(TmpUsedRegs);
+                    UpdateUsedRegs(TmpUsedRegs, tai(p.Next));
+                    UpdateUsedRegs(TmpUsedRegs, tai(hp1.Next));
+                    if not(RegUsedAfterInstruction(taicpu(hp2).oper[1]^.reg, hp2, TmpUsedRegs)) then
+                      begin
+                        DebugMsg(SPeepholeOptimization + 'MovAndTest2Test done',p);
+                        taicpu(hp1).loadoper(1,taicpu(p).oper[0]^);
+                        taicpu(hp1).opcode:=A_TEST;
+                        asml.Remove(hp2);
+                        hp2.free;
+                        RemoveCurrentP(p, hp1);
+                        Result:=true;
+                        exit;
+                      end;
+                  end;
               end
             else if IsMOVZXAcceptable and
               (taicpu(p).oper[1]^.typ = top_reg) and (taicpu(hp1).oper[1]^.typ = top_reg) and
@@ -3110,16 +3136,20 @@ unit aoptx86;
           GetNextInstructionUsingReg(p,hp1,taicpu(p).oper[1]^.reg) and
           MatchInstruction(hp1,A_LEA,[taicpu(p).opsize]) and
           MatchOperand(taicpu(p).oper[1]^,taicpu(hp1).oper[1]^) and
-          (taicpu(hp1).oper[0]^.ref^.base=taicpu(p).oper[1]^.reg) and
           (taicpu(p).oper[0]^.ref^.relsymbol=nil) and
           (taicpu(p).oper[0]^.ref^.segment=NR_NO) and
           (taicpu(p).oper[0]^.ref^.symbol=nil) and
-          (((taicpu(p).oper[0]^.ref^.scalefactor in [0,1]) and
+          (((taicpu(hp1).oper[0]^.ref^.base=taicpu(p).oper[1]^.reg) and
+            (taicpu(p).oper[0]^.ref^.scalefactor in [0,1]) and
             (taicpu(p).oper[0]^.ref^.index=NR_NO) and
             (taicpu(p).oper[0]^.ref^.index=taicpu(hp1).oper[0]^.ref^.index) and
             (taicpu(p).oper[0]^.ref^.scalefactor=taicpu(hp1).oper[0]^.ref^.scalefactor)
            ) or
-           ((taicpu(hp1).oper[0]^.ref^.scalefactor in [0,1]) and
+           ((taicpu(hp1).oper[0]^.ref^.index=taicpu(p).oper[1]^.reg) and
+            (taicpu(p).oper[0]^.ref^.index=NR_NO)
+           ) or
+           ((taicpu(hp1).oper[0]^.ref^.base=taicpu(p).oper[1]^.reg) and
+            (taicpu(hp1).oper[0]^.ref^.scalefactor in [0,1]) and
             (taicpu(p).oper[0]^.ref^.base=NR_NO) and
             not(RegUsedBetween(taicpu(p).oper[0]^.ref^.index,p,hp1)))
           ) and
@@ -3129,8 +3159,23 @@ unit aoptx86;
           (taicpu(p).oper[0]^.ref^.symbol=taicpu(hp1).oper[0]^.ref^.symbol) then
           begin
             DebugMsg(SPeepholeOptimization + 'LeaLea2Lea done',p);
-            inc(taicpu(hp1).oper[0]^.ref^.offset,taicpu(p).oper[0]^.ref^.offset);
-            taicpu(hp1).oper[0]^.ref^.base:=taicpu(p).oper[0]^.ref^.base;
+            if taicpu(hp1).oper[0]^.ref^.index=taicpu(p).oper[1]^.reg then
+              begin
+                taicpu(hp1).oper[0]^.ref^.index:=taicpu(p).oper[0]^.ref^.base;
+                inc(taicpu(hp1).oper[0]^.ref^.offset,taicpu(p).oper[0]^.ref^.offset*max(taicpu(hp1).oper[0]^.ref^.scalefactor,1));
+                { if the register is used as index and base, we have to increase for base as well
+                  and adapt base }
+                if taicpu(hp1).oper[0]^.ref^.base=taicpu(p).oper[1]^.reg then
+                  begin
+                    taicpu(hp1).oper[0]^.ref^.base:=taicpu(p).oper[0]^.ref^.base;
+                    inc(taicpu(hp1).oper[0]^.ref^.offset,taicpu(p).oper[0]^.ref^.offset);
+                  end;
+              end
+            else
+              begin
+                inc(taicpu(hp1).oper[0]^.ref^.offset,taicpu(p).oper[0]^.ref^.offset);
+                taicpu(hp1).oper[0]^.ref^.base:=taicpu(p).oper[0]^.ref^.base;
+              end;
             if taicpu(p).oper[0]^.ref^.index<>NR_NO then
               begin
                 taicpu(hp1).oper[0]^.ref^.base:=taicpu(hp1).oper[0]^.ref^.index;
@@ -3902,6 +3947,34 @@ unit aoptx86;
                    end;
                end;
            end;
+     end;
+
+
+   function TX86AsmOptimizer.OptPass1PXor(var p: tai): boolean;
+     var
+       hp1: tai;
+     begin
+       {
+         remove the second (v)pxor from
+
+           (v)pxor reg,reg
+           ...
+           (v)pxor reg,reg
+       }
+       Result:=false;
+       if MatchOperand(taicpu(p).oper[0]^,taicpu(p).oper[1]^) and
+         MatchOpType(taicpu(p),top_reg,top_reg) and
+         GetNextInstructionUsingReg(p,hp1,taicpu(p).oper[0]^.reg) and
+         MatchInstruction(taicpu(hp1),taicpu(p).opcode,[taicpu(p).opsize]) and
+         MatchOperand(taicpu(p).oper[0]^,taicpu(hp1).oper[0]^) and
+         MatchOperand(taicpu(hp1).oper[0]^,taicpu(hp1).oper[1]^) then
+         begin
+           DebugMsg(SPeepholeOptimization + 'PXorPXor2PXor done',hp1);
+           asml.Remove(hp1);
+           hp1.Free;
+           Result:=true;
+           Exit;
+         end;
      end;
 
 

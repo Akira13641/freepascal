@@ -3236,8 +3236,7 @@ const
     (mask:pio_nested_access; str:'NestedAccess'),
     (mask:pio_thunk; str:'Thunk'),
     (mask:pio_fastmath; str:'FastMath'),
-    (mask:pio_inline_forbidden; str:'InlineForbidden'),
-    (mask:pio_needs_parentfp; str:'NeedsParentFP')
+    (mask:pio_inline_forbidden; str:'InlineForbidden')
   );
 var
   i: timplprocoption;

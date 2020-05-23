@@ -1426,7 +1426,8 @@ type
     //ToDo: proStaticArrayCopy, // copy works with static arrays, returning a dynamic array
     //ToDo: proStaticArrayConcat, // concat works with static arrays, returning a dynamic array
     proProcTypeWithoutIsNested, // proc types can use nested procs without 'is nested'
-    proMethodAddrAsPointer   // can assign @method to a pointer
+    proMethodAddrAsPointer,  // can assign @method to a pointer
+    proSafecallAllowsDefault // allow assigning a default calling convetnion to a SafeCall proc
     );
   TPasResolverOptions = set of TPasResolverOption;
 
@@ -1752,7 +1753,7 @@ type
     function CheckBuiltInMinParamCount(Proc: TResElDataBuiltInProc; Expr: TPasExpr;
       MinCount: integer; RaiseOnError: boolean): boolean;
     function CheckBuiltInMaxParamCount(Proc: TResElDataBuiltInProc; Params: TParamsExpr;
-      MaxCount: integer; RaiseOnError: boolean): integer;
+      MaxCount: integer; RaiseOnError: boolean; Signature: string = ''): integer;
     function CheckRaiseTypeArgNo(id: TMaxPrecInt; ArgNo: integer; Param: TPasExpr;
       const ParamResolved: TPasResolverResult; Expected: string; RaiseOnError: boolean): integer;
     function FindUsedUnitInSection(const aName: string; Section: TPasSection): TPasModule;
@@ -2340,6 +2341,7 @@ type
     function ProcNeedsParams(El: TPasProcedureType): boolean;
     function IsProcOverride(AncestorProc, DescendantProc: TPasProcedure): boolean;
     function GetTopLvlProc(El: TPasElement): TPasProcedure;
+    function GetParentProc(El: TPasElement): TPasProcedure;
     function GetRangeLength(RangeExpr: TPasExpr): TMaxPrecInt;
     function EvalRangeLimit(RangeExpr: TPasExpr; Flags: TResEvalFlags;
       EvalLow: boolean; ErrorEl: TPasElement): TResEvalValue; virtual; // compute low() or high()
@@ -7025,6 +7027,8 @@ begin
             {$ENDIF}
             CheckProcSignatureMatch(DeclProc,Proc,false);
             DeclProcScope.ImplProc:=Proc;
+            if DeclProc.IsAssembler then
+              Proc.Modifiers:=Proc.Modifiers+[pmAssembler];
             ProcScope.DeclarationProc:=DeclProc;
             // remove ImplProc from scope
             ParentScope.RemoveLocalIdentifier(Proc);
@@ -7271,6 +7275,8 @@ begin
     if DeclProc.IsExternal then
       RaiseXExpectedButYFound(20170216151725,'method','external method',ImplProc);
     CheckProcSignatureMatch(DeclProc,ImplProc,false);
+    if DeclProc.IsAssembler then
+      ImplProc.Modifiers:=ImplProc.Modifiers+[pmAssembler];
     ImplProcScope.DeclarationProc:=DeclProc;
     DeclProcScope.ImplProc:=ImplProc;
 
@@ -9208,6 +9214,8 @@ var
   ImplTemplType, DeclTemplType: TPasGenericTemplateType;
   NewImplPTMods: TProcTypeModifiers;
   ptm: TProcTypeModifier;
+  NewImplProcMods: TProcedureModifiers;
+  pm: TProcedureModifier;
 begin
   if ImplProc.ClassType<>DeclProc.ClassType then
     RaiseXExpectedButYFound(20170216151729,DeclProc.TypeName,ImplProc.TypeName,ImplProc);
@@ -9275,10 +9283,24 @@ begin
         [],DeclResult,ImplResult,ImplProc);
     end;
 
-  // modifiers
+  // calling convention
   if ImplProc.CallingConvention<>DeclProc.CallingConvention then
     RaiseMsg(20170216151731,nCallingConventionMismatch,sCallingConventionMismatch,[],ImplProc);
+
+  // proc modifiers
+  NewImplProcMods:=ImplProc.Modifiers-DeclProc.Modifiers-[pmAssembler];
+  if not IsOverride then
+    begin
+    // implementation proc must not add modifiers, except "assembler"
+    if NewImplProcMods<>[] then
+      for pm in NewImplProcMods do
+        RaiseMsg(20200518182445,nDirectiveXNotAllowedHere,sDirectiveXNotAllowedHere,
+          [ModifierNames[pm]],ImplProc.ProcType);
+    end;
+
+  // proc type modifiers
   NewImplPTMods:=ImplProc.ProcType.Modifiers-DeclProc.ProcType.Modifiers;
+  // implementation proc must not add modifiers
   if NewImplPTMods<>[] then
     for ptm in NewImplPTMods do
       RaiseMsg(20200425154821,nDirectiveXNotAllowedHere,sDirectiveXNotAllowedHere,
@@ -14683,13 +14705,17 @@ begin
 end;
 
 function TPasResolver.CheckBuiltInMaxParamCount(Proc: TResElDataBuiltInProc;
-  Params: TParamsExpr; MaxCount: integer; RaiseOnError: boolean): integer;
+  Params: TParamsExpr; MaxCount: integer; RaiseOnError: boolean;
+  Signature: string): integer;
 begin
   if length(Params.Params)>MaxCount then
     begin
     if RaiseOnError then
+      begin
+      if Signature='' then Signature:=Proc.Signature;
       RaiseMsg(20170329154348,nWrongNumberOfParametersForCallTo,
-        sWrongNumberOfParametersForCallTo,[Proc.Signature],Params.Params[MaxCount]);
+        sWrongNumberOfParametersForCallTo,[Signature],Params.Params[MaxCount]);
+      end;
     exit(cIncompatible);
     end;
 
@@ -14988,7 +15014,7 @@ var
 begin
   Result:=nil;
   if not (Expr.CustomData is TResolvedReference) then
-    RaiseNotYetImplemented(20170518203134,Expr);
+    RaiseNotYetImplemented(20170518203134,Expr,GetObjName(Expr.CustomData));
   Ref:=TResolvedReference(Expr.CustomData);
   Decl:=Ref.Declaration;
   {$IFDEF VerbosePasResEval}
@@ -23178,10 +23204,17 @@ begin
     end;
   if Proc1.CallingConvention<>Proc2.CallingConvention then
     begin
-    if RaiseOnIncompatible then
-      RaiseMsg(20170402112253,nCallingConventionMismatch,sCallingConventionMismatch,
-        [],ErrorEl);
-    exit;
+    if (proSafecallAllowsDefault in Options)
+        and (Proc1.CallingConvention=ccSafeCall)
+        and (Proc2.CallingConvention=ccDefault) then
+      // ok
+    else
+      begin
+      if RaiseOnIncompatible then
+        RaiseMsg(20170402112253,nCallingConventionMismatch,sCallingConventionMismatch,
+          [],ErrorEl);
+      exit;
+      end;
     end;
   ProcArgs1:=Proc1.Args;
   ProcArgs2:=Proc2.Args;
@@ -28087,7 +28120,7 @@ begin
     Data:=TPasSpecializeTypeData.Create;
     // add to free list
     AddResolveData(El,Data,lkModule);
-    Data.SpecializedType:=Result as TPasGenericType;
+    Data.SpecializedType:=Result as TPasGenericType; // no AddRef
     end;
 end;
 
@@ -28408,6 +28441,17 @@ begin
     begin
     if El is TPasProcedure then
       Result:=TPasProcedure(El);
+    El:=El.Parent;
+    end;
+end;
+
+function TPasResolver.GetParentProc(El: TPasElement): TPasProcedure;
+begin
+  Result:=nil;
+  while El<>nil do
+    begin
+    if El is TPasProcedure then
+      exit(TPasProcedure(El));
     El:=El.Parent;
     end;
 end;

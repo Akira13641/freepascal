@@ -340,6 +340,10 @@ type
     Procedure TestProc_LocalVarInit;
     Procedure TestProc_ReservedWords;
     Procedure TestProc_ConstRefWord;
+    Procedure TestProc_Async;
+    Procedure TestProc_AWaitOutsideAsyncFail;
+    Procedure TestProc_AWait;
+    Procedure TestProc_AWaitExternalClassPromise;
 
     // anonymous functions
     Procedure TestAnonymousProc_Assign_ObjFPC;
@@ -352,6 +356,7 @@ type
     Procedure TestAnonymousProc_NestedAssignResult;
     Procedure TestAnonymousProc_Class;
     Procedure TestAnonymousProc_ForLoop;
+    Procedure TestAnonymousProc_Async;
 
     // enums, sets
     Procedure TestEnum_Name;
@@ -736,6 +741,8 @@ type
     Procedure TestProcType_Typecast;
     Procedure TestProcType_PassProcToUntyped;
     Procedure TestProcType_PassProcToArray;
+    Procedure TestProcType_SafeCallObjFPC;
+    Procedure TestProcType_SafeCallDelphi;
 
     // pointer
     Procedure TestPointer;
@@ -4602,6 +4609,115 @@ begin
     ]));
 end;
 
+procedure TTestModule.TestProc_Async;
+begin
+  StartProgram(false);
+  Add([
+  'procedure Fly(w: word); async; forward;',
+  'procedure Run(w: word); async;',
+  'begin',
+  'end;',
+  'procedure Fly(w: word); ',
+  'begin',
+  'end;',
+  'begin',
+  '  Run(1);']);
+  ConvertProgram;
+  CheckSource('TestProc_Async',
+    LinesToStr([ // statements
+    'this.Run = async function (w) {',
+    '};',
+    'this.Fly = async function (w) {',
+    '};',
+    '']),
+    LinesToStr([
+    '$mod.Run(1);'
+    ]));
+end;
+
+procedure TTestModule.TestProc_AWaitOutsideAsyncFail;
+begin
+  StartProgram(false);
+  Add([
+  'function Crawl(w: double): word; ',
+  'begin',
+  'end;',
+  'function Run(w: double): word;',
+  'begin',
+  '  Result:=await(Crawl(w));',
+  'end;',
+  'begin',
+  '  Run(1);']);
+  SetExpectedPasResolverError(sAWaitOnlyInAsyncProcedure,nAWaitOnlyInAsyncProcedure);
+  ConvertProgram;
+end;
+
+procedure TTestModule.TestProc_AWait;
+begin
+  StartProgram(false);
+  Add([
+  'function Crawl(d: double = 1.3): word; ',
+  'begin',
+  'end;',
+  'function Run(d: double): word; async;',
+  'begin',
+  '  Result:=await(1);',
+  '  Result:=await(Crawl);',
+  '  Result:=await(Crawl(4.5));',
+  'end;',
+  'begin',
+  '  Run(1);']);
+  ConvertProgram;
+  CheckSource('TestProc_AWait',
+    LinesToStr([ // statements
+    'this.Crawl = function (d) {',
+    '  var Result = 0;',
+    '  return Result;',
+    '};',
+    'this.Run = async function (d) {',
+    '  var Result = 0;',
+    '  Result = await 1;',
+    '  Result = await $mod.Crawl(1.3);',
+    '  Result = await $mod.Crawl(4.5);',
+    '  return Result;',
+    '};',
+    '']),
+    LinesToStr([
+    '$mod.Run(1);'
+    ]));
+end;
+
+procedure TTestModule.TestProc_AWaitExternalClassPromise;
+begin
+  StartProgram(false);
+  Add([
+  '{$modeswitch externalclass}',
+  'type',
+  '  TJSPromise = class external name ''Promise''',
+  '  end;',
+  'function Run(d: double): word; async;',
+  'var',
+  '  p: TJSPromise;',
+  'begin',
+  '  Result:=await(word,p);',
+  'end;',
+  'begin',
+  '  Run(1);']);
+  ConvertProgram;
+  CheckSource('TestProc_AWaitExternalClassPromise',
+    LinesToStr([ // statements
+    'this.Run = async function (d) {',
+    '  var Result = 0;',
+    '  var p = null;',
+    '  Result = await p;',
+    '  return Result;',
+    '};',
+    '']),
+    LinesToStr([
+    '$mod.Run(1);'
+    ]));
+end;
+
 procedure TTestModule.TestAnonymousProc_Assign_ObjFPC;
 begin
   StartProgram(false);
@@ -5079,6 +5195,44 @@ begin
     LinesToStr([
     '$mod.DoIt();'
     ]));
+end;
+
+procedure TTestModule.TestAnonymousProc_Async;
+begin
+  StartProgram(false);
+  Add([
+  '{$mode objfpc}',
+  'type',
+  '  TFunc = reference to function(x: double): word;',
+  'function Crawl(d: double = 1.3): word; ',
+  'begin',
+  'end;',
+  'var Func: TFunc;',
+  'begin',
+  '  Func:=function(c:double):word async begin',
+  '    Result:=await(Crawl(c));',
+  '  end;',
+  '  Func:=function(c:double):word async assembler asm',
+  '  end;',
+  '  ']);
+  ConvertProgram;
+  CheckSource('TestAnonymousProc_Async',
+    LinesToStr([ // statements
+    'this.Crawl = function (d) {',
+    '  var Result = 0;',
+    '  return Result;',
+    '};',
+    'this.Func = null;',
+    '']),
+    LinesToStr([
+    '$mod.Func = async function (c) {',
+    '  var Result = 0;',
+    '  Result = await $mod.Crawl(c);',
+    '  return Result;',
+    '};',
+    '$mod.Func = async function (c) {',
+    '};',
+    '']));
 end;
 
 procedure TTestModule.TestEnum_Name;
@@ -9510,8 +9664,6 @@ end;
 
 procedure TTestModule.TestArray_ArrayOfCharAssignString;
 begin
-  exit; // todo
-
   StartProgram(false);
   Add([
   'type TArr = array of char;',
@@ -9522,21 +9674,34 @@ begin
   'procedure Run(const a: array of char);',
   'begin',
   '  Run(c);',
-  //'  Run(s);',
+  '  Run(s);',
   'end;',
   'begin',
-  //'  a:=c;',
-  //'  a:=s;',
-  //'  a:=#13;',
-  //'  a:=''Foo'';',
-  //'  Run(c);',
-  //'  Run(s);',
+  '  a:=c;',
+  '  a:=s;',
+  '  a:=#13;',
+  '  a:=''Foo'';',
+  '  Run(c);',
+  '  Run(s);',
   '']);
   ConvertProgram;
   CheckSource('TestArray_ArrayOfCharAssignString',
     LinesToStr([ // statements
+    'this.c = "";',
+    'this.s = "";',
+    'this.a = [];',
+    'this.Run = function (a) {',
+    '  $mod.Run($mod.c.split(""));',
+    '  $mod.Run($mod.s.split(""));',
+    '};',
     '']),
     LinesToStr([
+    '$mod.a = $mod.c.split("");',
+    '$mod.a = $mod.s.split("");',
+    '$mod.a = "\r".split("");',
+    '$mod.a = "Foo".split("");',
+    '$mod.Run($mod.c.split(""));',
+    '$mod.Run($mod.s.split(""));',
     '']));
 end;
 
@@ -16227,22 +16392,22 @@ end;
 procedure TTestModule.TestExternalClass_Method;
 begin
   StartProgram(false);
-  Add('{$modeswitch externalclass}');
-  Add('type');
-  Add('  TExtA = class external name ''ExtObj''');
-  Add('    procedure DoIt(Id: longint = 1); external name ''$Execute'';');
-  Add('    procedure DoSome(Id: longint = 1);');
-  Add('  end;');
-  Add('var Obj: texta;');
-  Add('begin');
-  Add('  obj.doit;');
-  Add('  obj.doit();');
-  Add('  obj.doit(2);');
-  Add('  with obj do begin');
-  Add('    doit;');
-  Add('    doit();');
-  Add('    doit(3);');
-  Add('  end;');
+  Add(['{$modeswitch externalclass}',
+  'type',
+  '  TExtA = class external name ''ExtObj''',
+  '    procedure DoIt(Id: longint = 1); external name ''$Execute'';',
+  '    procedure DoSome(Id: longint = 1);',
+  '  end;',
+  'var Obj: texta;',
+  'begin',
+  '  obj.doit;',
+  '  obj.doit();',
+  '  obj.doit(2);',
+  '  with obj do begin',
+  '    doit;',
+  '    doit();',
+  '    doit(3);',
+  '  end;']);
   ConvertProgram;
   CheckSource('TestExternalClass_Method',
     LinesToStr([ // statements
@@ -25478,29 +25643,31 @@ end;
 procedure TTestModule.TestProcType_MethodDelphi;
 begin
   StartProgram(false);
-  Add('{$mode delphi}');
-  Add('type');
-  Add('  TFuncInt = function(vA: longint = 1): longint of object;');
-  Add('  TObject = class');
-  Add('    function DoIt(vA: longint = 1): longint;');
-  Add('  end;');
-  Add('function TObject.DoIt(vA: longint = 1): longint;');
-  Add('begin');
-  Add('end;');
-  Add('var');
-  Add('  Obj: TObject;');
-  Add('  vP: tfuncint;');
-  Add('  b: boolean;');
-  Add('begin');
-  Add('  vp:=@obj.doit;'); // ok in fpc and delphi
-  Add('  vp:=obj.doit;'); // illegal in fpc, ok in delphi
-  Add('  vp;'); // ok in fpc and delphi
-  Add('  vp();');
-  Add('  vp(2);');
-  //Add('  b:=vp=@obj.doit;'); // ok in fpc, illegal in delphi
-  //Add('  b:=@obj.doit=vp;'); // ok in fpc, illegal in delphi
-  //Add('  b:=vp<>@obj.doit;'); // ok in fpc, illegal in delphi
-  //Add('  b:=@obj.doit<>vp;'); // ok in fpc, illegal in delphi
+  Add([
+  '{$mode delphi}',
+  'type',
+  '  TFuncInt = function(vA: longint = 1): longint of object;',
+  '  TObject = class',
+  '    function DoIt(vA: longint = 1): longint;',
+  '  end;',
+  'function TObject.DoIt(vA: longint = 1): longint;',
+  'begin',
+  'end;',
+  'var',
+  '  Obj: TObject;',
+  '  vP: tfuncint;',
+  '  b: boolean;',
+  'begin',
+  '  vp:=@obj.doit;', // ok in fpc and delphi
+  '  vp:=obj.doit;', // illegal in fpc, ok in delphi
+  '  vp;', // ok in fpc and delphi
+  '  vp();',
+  '  vp(2);',
+  //'  b:=vp=@obj.doit;', // ok in fpc, illegal in delphi
+  //'  b:=@obj.doit=vp;', // ok in fpc, illegal in delphi
+  //'  b:=vp<>@obj.doit;', // ok in fpc, illegal in delphi
+  //'  b:=@obj.doit<>vp;'); // ok in fpc, illegal in delphi
+  '']);
   ConvertProgram;
   CheckSource('TestProcType_MethodDelphi',
     LinesToStr([ // statements
@@ -26330,6 +26497,177 @@ begin
     '$mod.DoIt([]);',
     '$mod.DoIt([$mod.GetIt]);',
     '$mod.DoIt([$mod.Func]);',
+    '']));
+end;
+
+procedure TTestModule.TestProcType_SafeCallObjFPC;
+begin
+  StartProgram(false);
+  Add([
+  '{$modeswitch externalclass}',
+  'type',
+  '  TProc = reference to procedure(i: longint); safecall;',
+  '  TEvent = procedure(i: longint) of object; safecall;',
+  '  TExtA = class external name ''ExtObj''',
+  '    procedure DoIt(Id: longint = 1); external name ''$Execute'';',
+  '    procedure DoSome(Id: longint = 1);',
+  '    procedure SetOnClick(const e: TEvent);',
+  '    property OnClick: TEvent write SetOnClick;',
+  '    class procedure Fly(Id: longint = 1); static;',
+  '    procedure SetOnShow(const p: TProc);',
+  '    property OnShow: TProc write SetOnShow;',
+  '  end;',
+  'procedure Run(i: longint = 1);',
+  'begin',
+  'end;',
+  'var',
+  '  Obj: texta;',
+  '  e: TEvent;',
+  '  p: TProc;',
+  'begin',
+  '  e:=e;',
+  '  e:=@obj.doit;',
+  '  e:=@obj.dosome;',
+  '  e:=TEvent(@obj.dosome);', // no safecall
+  '  obj.OnClick:=@obj.doit;',
+  '  obj.OnClick:=@obj.dosome;',
+  '  obj.setonclick(@obj.doit);',
+  '  obj.setonclick(@obj.dosome);',
+  '  p:=@Run;',
+  '  p:=@TExtA.Fly;',
+  '  obj.OnShow:=@Run;',
+  '  obj.OnShow:=@TExtA.Fly;',
+  '  obj.setOnShow(@Run);',
+  '  obj.setOnShow(@TExtA.Fly);',
+  '  with obj do begin',
+  '    e:=@doit;',
+  '    e:=@dosome;',
+  '    OnClick:=@doit;',
+  '    OnClick:=@dosome;',
+  '    setonclick(@doit);',
+  '    setonclick(@dosome);',
+  '    OnShow:=@Run;',
+  '    setOnShow(@Run);',
+  '  end;']);
+  ConvertProgram;
+  CheckSource('TestProcType_SafeCallObjFPC',
+    LinesToStr([ // statements
+    'this.Run = function (i) {',
+    '};',
+    'this.Obj = null;',
+    'this.e = null;',
+    'this.p = null;',
+    '']),
+    LinesToStr([ // $mod.$main
+    '$mod.e = $mod.e;',
+    '$mod.e = rtl.createSafeCallback($mod.Obj, "$Execute");',
+    '$mod.e = rtl.createSafeCallback($mod.Obj, "DoSome");',
+    '$mod.e = rtl.createCallback($mod.Obj, "DoSome");',
+    '$mod.Obj.SetOnClick(rtl.createSafeCallback($mod.Obj, "$Execute"));',
+    '$mod.Obj.SetOnClick(rtl.createSafeCallback($mod.Obj, "DoSome"));',
+    '$mod.Obj.SetOnClick(rtl.createSafeCallback($mod.Obj, "$Execute"));',
+    '$mod.Obj.SetOnClick(rtl.createSafeCallback($mod.Obj, "DoSome"));',
+    '$mod.p = rtl.createSafeCallback($mod, "Run");',
+    '$mod.p = rtl.createSafeCallback(ExtObj, "Fly");',
+    '$mod.Obj.SetOnShow(rtl.createSafeCallback($mod, "Run"));',
+    '$mod.Obj.SetOnShow(rtl.createSafeCallback(ExtObj, "Fly"));',
+    '$mod.Obj.SetOnShow(rtl.createSafeCallback($mod, "Run"));',
+    '$mod.Obj.SetOnShow(rtl.createSafeCallback(ExtObj, "Fly"));',
+    'var $with1 = $mod.Obj;',
+    '$mod.e = rtl.createSafeCallback($with1, "$Execute");',
+    '$mod.e = rtl.createSafeCallback($with1, "DoSome");',
+    '$with1.SetOnClick(rtl.createSafeCallback($with1, "$Execute"));',
+    '$with1.SetOnClick(rtl.createSafeCallback($with1, "DoSome"));',
+    '$with1.SetOnClick(rtl.createSafeCallback($with1, "$Execute"));',
+    '$with1.SetOnClick(rtl.createSafeCallback($with1, "DoSome"));',
+    '$with1.SetOnShow(rtl.createSafeCallback($mod, "Run"));',
+    '$with1.SetOnShow(rtl.createSafeCallback($mod, "Run"));',
+    '']));
+end;
+
+procedure TTestModule.TestProcType_SafeCallDelphi;
+begin
+  StartProgram(false);
+  Add([
+  '{$mode delphi}',
+  '{$modeswitch externalclass}',
+  'type',
+  '  TProc = reference to procedure(i: longint); safecall;',
+  '  TEvent = procedure(i: longint) of object; safecall;',
+  '  TExtA = class external name ''ExtObj''',
+  '    procedure DoIt(Id: longint = 1); external name ''$Execute'';',
+  '    procedure DoSome(Id: longint = 1);',
+  '    procedure SetOnClick(const e: TEvent);',
+  '    property OnClick: TEvent write SetOnClick;',
+  '    class procedure Fly(Id: longint = 1); static;',
+  '    procedure SetOnShow(const p: TProc);',
+  '    property OnShow: TProc write SetOnShow;',
+  '  end;',
+  'procedure Run(i: longint = 1);',
+  'begin',
+  'end;',
+  'var',
+  '  Obj: texta;',
+  '  e: TEvent;',
+  '  p: TProc;',
+  'begin',
+  '  e:=e;',
+  '  e:=obj.doit;',
+  '  e:=obj.dosome;',
+  '  e:=TEvent(@obj.dosome);', // no safecall
+  '  obj.OnClick:=obj.doit;',
+  '  obj.OnClick:=obj.dosome;',
+  '  obj.setonclick(obj.doit);',
+  '  obj.setonclick(obj.dosome);',
+  '  p:=Run;',
+  '  p:=TExtA.Fly;',
+  '  obj.OnShow:=Run;',
+  '  obj.OnShow:=TExtA.Fly;',
+  '  obj.setOnShow(Run);',
+  '  obj.setOnShow(TExtA.Fly);',
+  '  with obj do begin',
+  '    e:=doit;',
+  '    e:=dosome;',
+  '    OnClick:=doit;',
+  '    OnClick:=dosome;',
+  '    setonclick(doit);',
+  '    setonclick(dosome);',
+  '    OnShow:=@Run;',
+  '    setOnShow(@Run);',
+  '  end;']);
+  ConvertProgram;
+  CheckSource('TestProcType_SafeCallDelphi',
+    LinesToStr([ // statements
+    'this.Run = function (i) {',
+    '};',
+    'this.Obj = null;',
+    'this.e = null;',
+    'this.p = null;',
+    '']),
+    LinesToStr([ // $mod.$main
+    '$mod.e = $mod.e;',
+    '$mod.e = rtl.createSafeCallback($mod.Obj, "$Execute");',
+    '$mod.e = rtl.createSafeCallback($mod.Obj, "DoSome");',
+    '$mod.e = rtl.createCallback($mod.Obj, "DoSome");',
+    '$mod.Obj.SetOnClick(rtl.createSafeCallback($mod.Obj, "$Execute"));',
+    '$mod.Obj.SetOnClick(rtl.createSafeCallback($mod.Obj, "DoSome"));',
+    '$mod.Obj.SetOnClick(rtl.createSafeCallback($mod.Obj, "$Execute"));',
+    '$mod.Obj.SetOnClick(rtl.createSafeCallback($mod.Obj, "DoSome"));',
+    '$mod.p = rtl.createSafeCallback($mod, "Run");',
+    '$mod.p = rtl.createSafeCallback(ExtObj, "Fly");',
+    '$mod.Obj.SetOnShow(rtl.createSafeCallback($mod, "Run"));',
+    '$mod.Obj.SetOnShow(rtl.createSafeCallback(ExtObj, "Fly"));',
+    '$mod.Obj.SetOnShow(rtl.createSafeCallback($mod, "Run"));',
+    '$mod.Obj.SetOnShow(rtl.createSafeCallback(ExtObj, "Fly"));',
+    'var $with1 = $mod.Obj;',
+    '$mod.e = rtl.createSafeCallback($with1, "$Execute");',
+    '$mod.e = rtl.createSafeCallback($with1, "DoSome");',
+    '$with1.SetOnClick(rtl.createSafeCallback($with1, "$Execute"));',
+    '$with1.SetOnClick(rtl.createSafeCallback($with1, "DoSome"));',
+    '$with1.SetOnClick(rtl.createSafeCallback($with1, "$Execute"));',
+    '$with1.SetOnClick(rtl.createSafeCallback($with1, "DoSome"));',
+    '$with1.SetOnShow(rtl.createSafeCallback($mod, "Run"));',
+    '$with1.SetOnShow(rtl.createSafeCallback($mod, "Run"));',
     '']));
 end;
 

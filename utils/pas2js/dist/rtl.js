@@ -129,8 +129,7 @@ var rtl = {
   exitcode: 0,
 
   run: function(module_name){
-  
-    function doRun(){
+    try {
       if (!rtl.hasString(module_name)) module_name='program';
       if (rtl.debug_load_units) rtl.debug('rtl.run module="'+module_name+'"');
       rtl.initRTTI();
@@ -143,21 +142,36 @@ var rtl = {
         var r = pas.program.$main();
         if (rtl.isNumber(r)) rtl.exitcode = r;
       }
-    }
-    
-    if (rtl.showUncaughtExceptions) {
-      try{
-        doRun();
-      } catch(re) {
-        var errMsg = rtl.hasString(re.$classname) ? re.$classname : '';
-	    errMsg +=  ((errMsg) ? ': ' : '') + (re.hasOwnProperty('fMessage') ? re.fMessage : re);
-        alert('Uncaught Exception : '+errMsg);
-        rtl.exitCode = 216;
+    } catch(re) {
+      if (!rtl.showUncaughtExceptions) {
+        throw re
+      } else {  
+        if (!rtl.handleUncaughtException(re)) {
+          rtl.showException(re);
+          rtl.exitcode = 216;
+        }  
+      }
+    } 
+    return rtl.exitcode;
+  },
+  
+  showException : function (re) {
+    var errMsg = rtl.hasString(re.$classname) ? re.$classname : '';
+    errMsg +=  ((errMsg) ? ': ' : '') + (re.hasOwnProperty('fMessage') ? re.fMessage : re);
+    alert('Uncaught Exception : '+errMsg);
+  },
+
+  handleUncaughtException: function (e) {
+    if (rtl.onUncaughtException) {
+      try {
+        rtl.onUncaughtException(e);
+        return true;
+      } catch (ee) {
+        return false; 
       }
     } else {
-      doRun();
+      return false;
     }
-    return rtl.exitcode;
   },
 
   loadintf: function(module){
@@ -223,6 +237,23 @@ var rtl = {
       cb = function(){
         return fn.apply(scope,arguments);
       };
+    };
+    cb.scope = scope;
+    cb.fn = fn;
+    return cb;
+  },
+
+  createSafeCallback: function(scope, fn){
+    var cb = function(){
+      try{
+        if (typeof(fn)==='string'){
+          return scope[fn].apply(scope,arguments);
+        } else {
+          return fn.apply(scope,arguments);
+        };
+      } catch (err) {
+        if (!rtl.handleUncaughtException(err)) throw err;
+      }
     };
     cb.scope = scope;
     cb.fn = fn;
@@ -821,9 +852,7 @@ var rtl = {
   },
 
   arrayRef: function(a){
-    if (a!=null){
-      rtl.hideProp(a,$pas2jsrefcnt,1);
-    }
+    if (a!=null) rtl.hideProp(a,'$pas2jsrefcnt',1);
     return a;
   },
 
@@ -909,11 +938,6 @@ var rtl = {
     if (a.length!==b.length) return false;
     for (var i=0; i<a.length; i++) if (a[i]!==b[i]) return false;
     return true;
-  },
-
-  arrayRef: function(a){
-    if (a!==null) rtl.hideProp(a,'$pas2jsrefcnt',1);
-    return a;
   },
 
   arrayClone: function(type,src,srcpos,endpos,dst,dstpos){
