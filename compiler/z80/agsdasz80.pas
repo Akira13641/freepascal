@@ -252,8 +252,8 @@ unit agsdasz80;
           '_CODE',
           '_DATA',
           '_DATA',
-          '.rodata',
-          '.bss',
+          '_DATA',
+          '_BSS',
           '.threadvar',
           '.pdata',
           '', { stubs }
@@ -304,13 +304,16 @@ unit agsdasz80;
           '.objc_catlist',
           '.obcj_nlcatlist',
           '.objc_protolist',
-          '.stack',
-          '.heap',
+          '_STACK',
+          '_HEAP',
           '.gcc_except_table',
           '.ARM.attributes'
         );
       begin
-        result:=secnames[atype];
+        if atype=sec_user then
+          result:=aname
+        else
+          result:=secnames[atype];
       end;
 
     procedure TSdccSdasZ80Assembler.WriteSection(atype: TAsmSectiontype;
@@ -343,7 +346,10 @@ unit agsdasz80;
       var
         i: Integer;
       begin
-        writer.AsmWrite(#9#9+std_op2str[hp.opcode]);
+        if hp.opcode=A_JRJP then
+          writer.AsmWrite(#9#9'jp')
+        else
+          writer.AsmWrite(#9#9+std_op2str[hp.opcode]);
         if (taicpu(hp).ops<>0) or (hp.condition<>C_None) then
           begin
             writer.AsmWrite(#9);
@@ -898,7 +904,7 @@ unit agsdasz80;
             idtxt  : 'SDCC-SDASZ80';
             asmbin : 'sdasz80';
             asmcmd : '-g -o $EXTRAOPT $OBJ $ASM';
-            supported_targets : [system_Z80_embedded,system_z80_zxspectrum];
+            supported_targets : [system_Z80_embedded,system_z80_zxspectrum,system_z80_msxdos];
             flags : [af_needar];
             labelprefix : '.L';
             labelmaxlen : 79;

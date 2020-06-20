@@ -44,7 +44,7 @@ unit i_zxspectrum;
             cpu          : cpu_z80;
             unit_env     : '';
             extradefines : '';
-            exeext       : '';
+            exeext       : '.tzx';
             defext       : '.def';
             scriptext    : '.sh';
             smartext     : '.sl';
@@ -67,13 +67,9 @@ unit i_zxspectrum;
             Cprefix      : '';
             newline      : #10;
             dirsep       : '/';
-{$ifdef Z80_INTERNAL_ASM}
             assem        : as_z80_rel;
-{$else Z80_INTERNAL_ASM}
-            assem        : as_sdcc_sdasz80;
-{$endif Z80_INTERNAL_ASM}
             assemextern  : as_sdcc_sdasz80;
-            link         : ld_none;
+            link         : ld_int_zxspectrum;
             linkextern   : ld_zxspectrum;
             ar           : ar_sdcc_sdar;
             res          : res_none;
