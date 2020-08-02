@@ -306,13 +306,7 @@ Notes:
 }
 unit PasResolver;
 
-{$mode objfpc}{$H+}
-{$inline on}
-
-{$ifdef fpc}
-  {$define UsePChar}
-  {$define HasInt64}
-{$endif}
+{$i fcl-passrc.inc}
 
 {$IFOPT Q+}{$DEFINE OverflowCheckOn}{$ENDIF}
 {$IFOPT R+}{$DEFINE RangeCheckOn}{$ENDIF}
@@ -1280,6 +1274,7 @@ type
   TPRResolveVarAccesses = set of TResolvedRefAccess;
 
 const
+  rraAllRead = [rraRead,rraReadAndAssign,rraVarParam];
   rraAllWrite = [rraAssign,rraReadAndAssign,rraVarParam,rraOutParam];
 
   ResolvedToPSRefAccess: array[TResolvedRefAccess] of TPSRefAccess = (
@@ -11030,14 +11025,15 @@ begin
       ResolveBinaryExpr(TBinaryExpr(Params.Value),Access);
       if not (Value.CustomData is TResolvedReference) then
         RaiseNotYetImplemented(20190115144534,Params);
-      // already resolved
+      // already resolved via ResolveNameExpr, which calls ResolveArrayParamsExprName
       exit;
       end
     else
       begin
-      // ToDo: (a+b)[]
-      //ResolveBinaryExpr(TBinaryExpr(Params.Value),rraRead);
-      RaiseNotYetImplemented(20190115144539,Params);
+      // For example (a+b)[]  or (a as b)[]
+      Value:=Params.Value;
+      ResolveBinaryExpr(TBinaryExpr(Value),rraRead);
+      ComputeElement(Value,ResolvedEl,[rcSetReferenceFlags]);
       end;
     end
   else
@@ -15919,7 +15915,7 @@ begin
 
   IsDelphi:=msDelphi in CurrentParser.CurrentModeswitches;
   try
-    SetLength(InferenceTypes,TemplTypes.Count);
+    SetLength(InferenceTypes{%H-},TemplTypes.Count);
     for i:=0 to TemplTypes.Count-1 do
       InferenceTypes[i]:=Default(TInferredType);
 
@@ -16397,8 +16393,19 @@ var
   procedure InsertBehind(List: TFPList);
   var
     Last: TPasElement;
-    i: Integer;
+    i, LastIndex: Integer;
+    GenScope: TPasGenericScope;
+    ProcScope: TPasProcedureScope;
   begin
+    // insert in front of currently parsed elements
+    // beware: specializing an element can create other specialized elements
+    // add behind last specialized element of this GenericEl
+    // for example: A = class(B<C<D>>)
+    // =>
+    //  D
+    //  C<D>
+    //  B<C<D>>
+    //  A
     Last:=GenericEl;
     if SpecializedItems<>nil then
       begin
@@ -16406,15 +16413,46 @@ var
       if i>=0 then
         Last:=TPRSpecializedItem(SpecializedItems[i]).SpecializedEl;
       end;
-    i:=List.IndexOf(Last);
-    if i<0 then
+    LastIndex:=List.IndexOf(Last);
+    if (LastIndex<0) then
+      if GenericEl is TPasProcedure then
+      else
+        RaiseNotYetImplemented(20200725093218,El);
+    i:=List.Count-1;
+    while i>LastIndex do
       begin
-      {$IF defined(VerbosePasResolver) or defined(VerbosePas2JS)}
-      writeln('InsertBehind Generic=',GetObjName(GenericEl),' Last=',GetObjName(Last));
-      //for i:=0 to List.Count-1 do writeln('  ',GetObjName(TObject(List[i])));
-      {$ENDIF}
-      i:=List.Count-1;
+      Last:=TPasElement(List[i]);
+      if Last is TPasGenericType then
+        begin
+        if (Last.CustomData<>nil) then
+          begin
+          GenScope:=Last.CustomData as TPasGenericScope;
+          if GenScope.GenericStep>=psgsInterfaceParsed then
+            break; // finished generic type
+          end;
+        // type is still parsed => insert in front
+        dec(i);
+        end
+      else if Last is TPasProcedure then
+        begin
+        ProcScope:=Last.CustomData as TPasProcedureScope;
+        if ProcScope.GenericStep>=psgsInterfaceParsed then
+          break; // finished generic proc
+        // proc is still parsed => insert in front
+        dec(i);
+        end
+      else
+        break;
       end;
+
+    //if i<0 then
+    //  begin
+    //  {$IF defined(VerbosePasResolver) or defined(VerbosePas2JS)}
+    //  writeln('InsertBehind Generic=',GetObjName(GenericEl),' Last=',GetObjName(Last));
+    //  //for i:=0 to List.Count-1 do writeln('  ',GetObjName(TObject(List[i])));
+    //  {$ENDIF}
+    //  i:=List.Count-1;
+    //  end;
     List.Insert(i+1,NewEl);
   end;
 
@@ -28034,7 +28072,7 @@ var
 begin
   Result:=false;
   if aClass=nil then exit;
-  while (aClass<>nil) and aClass.IsExternal do
+  while aClass<>nil do
     begin
     if aClass.ExternalName=ExtName then exit(true);
     AncestorScope:=(aClass.CustomData as TPasClassScope).AncestorScope;
@@ -28223,7 +28261,7 @@ begin
       ['type with '+IntToStr(Params.Count)+' generic template(s)',
        GenericEl.Name+GetGenericParamCommas(GenericTemplateList.Count)],El);
 
-  SetLength(ParamsResolved,Params.Count);
+  SetLength(ParamsResolved{%H-},Params.Count);
   IsSelf:=true;
   for i:=0 to Params.Count-1 do
     begin

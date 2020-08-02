@@ -342,7 +342,8 @@ interface
          cs_opt_constant_propagate,
          cs_opt_dead_store_eliminate,
          cs_opt_forcenostackframe,
-         cs_opt_use_load_modify_store
+         cs_opt_use_load_modify_store,
+         cs_opt_unused_para
        );
        toptimizerswitches = set of toptimizerswitch;
 
@@ -352,6 +353,12 @@ interface
          cs_wpo_symbol_liveness
        );
        twpoptimizerswitches = set of twpoptimizerswitch;
+
+       { platform triplet style }
+       ttripletstyle = (
+         triplet_llvm
+         { , triple_gnu }
+       );
 
        { module flags (extra unit flags not in ppu header) }
        tmoduleflag = (
@@ -400,7 +407,8 @@ interface
          'DFA','STRENGTH','SCHEDULE','AUTOINLINE','USEEBP','USERBP',
          'ORDERFIELDS','FASTMATH','DEADVALUES','REMOVEEMPTYPROCS',
          'CONSTPROP',
-         'DEADSTORE','FORCENOSTACKFRAME','USELOADMODIFYSTORE'
+         'DEADSTORE','FORCENOSTACKFRAME','USELOADMODIFYSTORE',
+         'UNUSEDPARA'
        );
        WPOptimizerSwitchStr : array [twpoptimizerswitch] of string[14] = (
          'DEVIRTCALLS','OPTVMTS','SYMBOLLIVENESS'
@@ -425,7 +433,7 @@ interface
 
        { switches being applied to all CPUs at the given level }
        genericlevel1optimizerswitches = [cs_opt_level1,cs_opt_peephole];
-       genericlevel2optimizerswitches = [cs_opt_level2,cs_opt_remove_empty_proc];
+       genericlevel2optimizerswitches = [cs_opt_level2,cs_opt_remove_empty_proc,cs_opt_unused_para];
        genericlevel3optimizerswitches = [cs_opt_level3,cs_opt_constant_propagate,cs_opt_nodedfa{$ifndef llvm},cs_opt_use_load_modify_store{$endif},cs_opt_loopunroll];
        genericlevel4optimizerswitches = [cs_opt_level4,cs_opt_reorder_fields,cs_opt_dead_values,cs_opt_fastmath];
 

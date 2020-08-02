@@ -768,6 +768,7 @@ interface
           forwarddef,
           interfacedef : boolean;
           hasforward  : boolean;
+          is_implemented : boolean;
        end;
        pimplprocdefinfo = ^timplprocdefinfo;
 
@@ -813,6 +814,8 @@ interface
          procedure SetIsEmpty(AValue: boolean);
          function GetHasInliningInfo: boolean;
          procedure SetHasInliningInfo(AValue: boolean);
+         function Getis_implemented: boolean;
+         procedure Setis_implemented(AValue: boolean);
          function getparentfpsym: tsym;
        public
           messageinf : tmessageinf;
@@ -897,8 +900,6 @@ interface
           { returns whether the mangled name or any of its aliases is equal to
             s }
           function  has_alias_name(const s: TSymStr):boolean;
-          { Returns true if the implementation part for this procdef has been handled }
-          function is_implemented: boolean;
 
           { aliases to fields only required when a function is implemented in
             the current unit }
@@ -938,6 +939,8 @@ interface
           property has_inlininginfo: boolean read GetHasInliningInfo write SetHasInliningInfo;
           { returns the $parentfp parameter for nested routines }
           property parentfpsym: tsym read getparentfpsym;
+          { true if the implementation part for this procdef has been handled }
+          property is_implemented: boolean read Getis_implemented write Setis_implemented;
        end;
        tprocdefclass = class of tprocdef;
 
@@ -2349,10 +2352,9 @@ implementation
                  not trecorddef(self).contains_cross_aword_field and
                  { records cannot go into registers on 16 bit targets for now }
                  (sizeof(aint)>2) and
-                 (not trecorddef(self).contains_float_field) or
-                  (recsize <= sizeof(aint))
-                 ) and
-                 not needs_inittable;
+                 not trecorddef(self).contains_float_field
+                ) and
+                not needs_inittable;
 {$endif cpuhighleveltarget}
             end;
           else
@@ -3242,7 +3244,7 @@ implementation
 
     function torddef.alignment:shortint;
       begin
-        if (target_info.system in [system_i386_darwin,system_i386_iphonesim,system_arm_darwin]) and
+        if (target_info.system in [system_i386_darwin,system_i386_iphonesim,system_arm_ios]) and
            (ordtype in [s64bit,u64bit]) then
           result := 4
         else
@@ -3384,7 +3386,7 @@ implementation
 
     function tfloatdef.alignment:shortint;
       begin
-        if (target_info.system in [system_i386_darwin,system_i386_iphonesim,system_arm_darwin]) then
+        if (target_info.system in [system_i386_darwin,system_i386_iphonesim,system_arm_ios]) then
           case floattype of
             sc80real,
             s80real: result:=16;
@@ -3760,7 +3762,7 @@ implementation
         has_pointer_math:=cs_pointermath in current_settings.localswitches;
         if (df_specialization in tstoreddef(def).defoptions)
 {$ifndef genericdef_for_nested}
-           { currently, nested procdefs of generic routines get df_specialisation,
+           { currently, nested procdefs of generic routines get df_specialization,
              but no genericdef }
            and assigned(tstoreddef(def).genericdef)
 {$endif}
@@ -5856,6 +5858,20 @@ implementation
       end;
 
 
+    function tprocdef.Getis_implemented: boolean;
+      begin
+        result:=not assigned(implprocdefinfo) or implprocdefinfo^.is_implemented;
+      end;
+
+
+    procedure tprocdef.Setis_implemented(AValue: boolean);
+      begin
+        if not assigned(implprocdefinfo) then
+          internalerror(2020062101);
+        implprocdefinfo^.is_implemented:=AValue;
+      end;
+
+
     function tprocdef.store_localst: boolean;
       begin
         result:=has_inlininginfo or (df_generic in defoptions);
@@ -6577,12 +6593,6 @@ implementation
             item:=TCmdStrListItem(item.next);
           end;
         result:=false;
-      end;
-
-
-    function tprocdef.is_implemented: boolean;
-      begin
-        result:=not assigned(implprocdefinfo) or not implprocdefinfo^.forwarddef;
       end;
 
 
@@ -8816,7 +8826,7 @@ implementation
       begin
         if assigned(objc_fastenumeration) then
           exit;
-        if not(target_info.system in [system_arm_darwin,system_i386_iphonesim,system_aarch64_darwin,system_x86_64_iphonesim]) then
+        if not(target_info.system in [system_arm_ios,system_i386_iphonesim,system_aarch64_ios,system_x86_64_iphonesim]) then
           cocoaunit:='COCOAALL'
         else
           cocoaunit:='IPHONEALL';

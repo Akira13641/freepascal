@@ -563,6 +563,7 @@ type
     pbifnBitwiseNativeIntXor,
     pbifnCheckMethodCall,
     pbifnCheckVersion,
+    pbifnClassAncestorFunc,
     pbifnClassInstanceFree,
     pbifnClassInstanceNew,
     pbifnCreateClass,
@@ -615,6 +616,7 @@ type
     pbifnRecordAssign,
     pbifnRecordClone,
     pbifnRecordCreateType,
+    pbifnRecordCreateSpecializeType,
     pbifnRecordEqual,
     pbifnRecordNew,
     pbifnRTTIAddField, // typeinfos of tkclass and tkrecord have addField
@@ -742,6 +744,7 @@ const
     'xor', // pbifnBitwiseNativeIntXor,
     'checkMethodCall', // pbifnCheckMethodCall
     'checkVersion', // pbifnCheckVersion
+    '$ancestorfunc', // pbifnClassAncestorFunc
     '$destroy', // pbifnClassInstanceFree
     '$create', // pbifnClassInstanceNew
     'createClass', // pbifnCreateClass   rtl.createClass
@@ -793,7 +796,8 @@ const
     'rcSetCharAt',  // pbifnRangeCheckSetCharAt  rtl.rcSetCharAt
     '$assign', // pbifnRecordAssign
     '$clone', // pbifnRecordClone
-    'recNewT', // pbifnRecordNew
+    'recNewT', // pbifnRecordCreateType
+    'recNewS', // pbifnRecordCreateSpecializeType
     '$eq', // pbifnRecordEqual
     '$new', // pbifnRecordNew
     'addField', // pbifnRTTIAddField
@@ -1384,6 +1388,14 @@ type
     procedure OnHasAnonymousEl(El: TPasElement; arg: pointer);
   protected
     type
+      THasElReadingDeclData = record
+        Decl: TPasElement;
+        El: TPasElement;
+      end;
+      PHasElReadingDeclData = ^THasElReadingDeclData;
+    procedure OnHasElReadingDecl(El: TPasElement; arg: pointer);
+  protected
+    type
       TPRFindExtSystemClass = record
         JSName: string;
         ErrorPosEl: TPasElement;
@@ -1561,7 +1573,8 @@ type
       InResolved: TPasResolverResult; out ArgResolved, LengthResolved,
       PropResultResolved: TPasResolverResult): boolean;
     function IsHelperMethod(El: TPasElement): boolean; override;
-    function IsHelperForMember(El: TPasElement): boolean;
+    function IsHelperForMember(El: TPasElement): boolean; virtual;
+    function ImplBlockReadsDecl(Block: TPasImplBlock; Decl: TPasElement): boolean; virtual;
   end;
 
 //------------------------------------------------------------------------------
@@ -2978,6 +2991,22 @@ begin
   Data^.Expr:=TProcedureExpr(El);
 end;
 
+procedure TPas2JSResolver.OnHasElReadingDecl(El: TPasElement; arg: pointer);
+var
+  Data: PHasElReadingDeclData absolute arg;
+  Ref: TResolvedReference;
+begin
+  if Data^.El<>nil then exit;
+  if El.CustomData is TResolvedReference then
+    begin
+    Ref:=TResolvedReference(El.CustomData);
+    if (Ref.Declaration=Data^.Decl) and (Ref.Access in rraAllRead) then
+      begin
+      Data^.El:=El;
+      end;
+    end;
+end;
+
 procedure TPas2JSResolver.OnFindExtSystemClass(El: TPasElement; ElScope,
   StartScope: TPasScope; FindExtSystemClassData: Pointer; var Abort: boolean);
 var
@@ -2990,7 +3019,7 @@ begin
   if not aClass.IsExternal then exit;
   if aClass.Parent is TPasMembersType then
     exit; // nested class
-  if not IsExternalClass_Name(aClass,Data^.JSName) then exit;
+  if aClass.ExternalName<>Data^.JSName then exit;
   Data^.Found:=aClass;
   Data^.ElScope:=ElScope;
   Data^.StartScope:=StartScope;
@@ -3247,6 +3276,7 @@ begin
     exit(false); // there is no overload
 
   if (El.ClassType=TPasClassFunction)
+      and (El.Parent.ClassType=TPasClassType)
       and (TPas2JSClassScope(TPasClassType(El.Parent).CustomData).NewInstanceFunction=El) then
     begin
     Duplicate:=GetDuplicate;
@@ -3515,6 +3545,8 @@ var
   Scope: TPasIdentifierScope;
 begin
   i:=FOverloadScopes.Count-1;
+  if i<0 then
+    RaiseInternalError(20200723125456);
   Scope:=TPasIdentifierScope(FOverloadScopes[i]);
   if Scope.ClassType=TPas2JSOverloadChgThisScope then
     Scope.Free;
@@ -4333,12 +4365,12 @@ begin
           okClass:
             begin
             if (ClassScope.NewInstanceFunction=nil)
+                and (Proc.ClassType=TPasClassFunction)
                 and (ClassScope.AncestorScope<>nil)
                 and (TPasClassType(ClassScope.AncestorScope.Element).IsExternal)
-                and (Proc.ClassType=TPasClassFunction)
                 and (Proc.Visibility in [visProtected,visPublic,visPublished])
                 and (TPasClassFunction(Proc).FuncType.ResultEl.ResultType=AClassOrRec)
-                and (Proc.Modifiers*[pmOverride,pmExternal]=[])
+                and (Proc.Modifiers-[pmVirtual,pmAssembler]=[])
                 and (Proc.ProcType.Modifiers*[ptmOfObject]=[ptmOfObject]) then
               begin
               // The first non private class function in a Pascal class descending
@@ -6785,6 +6817,17 @@ begin
     Result:=vmExternal in TPasVariable(El).VarModifiers
   else
     Result:=true;
+end;
+
+function TPas2JSResolver.ImplBlockReadsDecl(Block: TPasImplBlock;
+  Decl: TPasElement): boolean;
+var
+  Data: THasElReadingDeclData;
+begin
+  Data.Decl:=Decl;
+  Data.El:=nil;
+  Block.ForEachCall(@OnHasElReadingDecl,@Data);
+  Result:=Data.El<>nil;
 end;
 
 { TParamContext }
@@ -9691,36 +9734,48 @@ function TPasToJSConverter.ConvertInheritedExpr(El: TInheritedExpr;
       DoError(20170418204325,nNestedInheritedNeedsParameters,sNestedInheritedNeedsParameters,
         [],El);
 
-    if (AncestorProc.Parent is TPasClassType)
-        and TPasClassType(AncestorProc.Parent).IsExternal then
-      begin
-      // ancestor is in an external class
-      // They could be overriden, without a Pascal declaration
-      // -> use the direct ancestor class of the current proc
-      aClass:=SelfContext.ThisPas as TPasClassType;
-      if aClass.CustomData=nil then
-        RaiseInconsistency(20170323111252,aClass);
-      ClassScope:=TPasClassScope(aClass.CustomData);
-      AncestorScope:=ClassScope.AncestorScope;
-      if AncestorScope=nil then
-        RaiseInconsistency(20170323111306,aClass);
-      AncestorClass:=AncestorScope.Element as TPasClassType;
-      FunName:=CreateReferencePath(AncestorClass,AContext,rpkPathAndName,true)
-        +'.'+TransformVariableName(AncestorProc,AContext);
-      end
-    else
-      FunName:=CreateReferencePath(AncestorProc,AContext,rpkPathAndName,true);
-    if AncestorProc.ProcType.Args.Count=0 then
-      Apply:=false;
-    if Apply and (SelfContext=AContext) then
-      // create "ancestor.funcname.apply(this,arguments)"
-      FunName:=FunName+'.apply'
-    else
-      // create "ancestor.funcname.call(this,param1,param2,...)"
-      FunName:=FunName+'.call';
     Call:=nil;
     try
       Call:=CreateCallExpression(ParentEl);
+      if (AncestorProc.Parent is TPasClassType)
+          and TPasClassType(AncestorProc.Parent).IsExternal then
+        begin
+        // ancestor is in an external class
+        // They could be overriden, without a Pascal declaration
+        // -> use the direct ancestor class of the current proc
+        aClass:=SelfContext.ThisPas as TPasClassType;
+        if aClass.CustomData=nil then
+          RaiseInconsistency(20170323111252,aClass);
+        ClassScope:=TPasClassScope(aClass.CustomData);
+        AncestorScope:=ClassScope.AncestorScope;
+        if AncestorScope=nil then
+          RaiseInconsistency(20170323111306,aClass);
+        AncestorClass:=AncestorScope.Element as TPasClassType;
+        if (AncestorProc.ClassType=TPasConstructor) and SameText(AncestorProc.Name,'new')
+            and AContext.Resolver.IsExternalClass_Name(TPasClassType(AncestorProc.Parent),'Function') then
+          begin
+          // calling ancestor new constructor
+          // this.$func(param1,param2,...)
+          FunName:='this.'+GetBIName(pbifnClassAncestorFunc);
+          Call.Expr:=CreatePrimitiveDotExpr(FunName,ParentEl);
+          CreateProcedureCall(Call,ParamsExpr,AncestorProc.ProcType,AContext);
+          Result:=Call;
+          exit;
+          end
+        else
+          FunName:=CreateReferencePath(AncestorClass,AContext,rpkPathAndName,true)
+            +'.'+TransformVariableName(AncestorProc,AContext);
+        end
+      else
+        FunName:=CreateReferencePath(AncestorProc,AContext,rpkPathAndName,true);
+      if AncestorProc.ProcType.Args.Count=0 then
+        Apply:=false;
+      if Apply and (SelfContext=AContext) then
+        // create "ancestor.funcname.apply(this,arguments)"
+        FunName:=FunName+'.apply'
+      else
+        // create "ancestor.funcname.call(this,param1,param2,...)"
+        FunName:=FunName+'.call';
       Call.Expr:=CreatePrimitiveDotExpr(FunName,ParentEl);
       Call.AddArg(CreatePrimitiveDotExpr(SelfName,ParentEl));
       if Apply then
@@ -11974,39 +12029,91 @@ function TPasToJSConverter.ConvertBuiltIn_Exit(El: TPasExpr;
 // convert "exit;" -> in a function: "return result;"  in a procedure: "return;"
 // convert "exit(param);" -> "return param;"
 var
-  ProcEl: TPasElement;
-  Scope: TPas2JSProcedureScope;
-  VarName: String;
+  ParentEl: TPasElement;
+  ImplProcScope: TPas2JSProcedureScope;
+  ResultVarName: String;
   FuncContext: TFunctionContext;
   AssignSt: TJSSimpleAssignStatement;
   St: TJSStatementList;
-  Proc: TPasProcedure;
+  ImplProc, DeclProc: TPasProcedure;
+  ImplTry: TPasImplTry;
+  ResultIsRead: Boolean;
+  ResultEl: TPasResultElement;
 begin
   {$IFDEF VerbosePas2JS}
   writeln('TPasToJSConverter.ConvertBuiltIn_Exit ',GetObjName(El));
   {$ENDIF}
-  ProcEl:=El.Parent;
-  while (ProcEl<>nil) and not (ProcEl is TPasProcedure) do
-    ProcEl:=ProcEl.Parent;
-  // ProcEl can be nil, when exit is in program begin block
-  Proc:=TPasProcedure(ProcEl);
+  ParentEl:=El.Parent;
+  while (ParentEl<>nil) and not (ParentEl is TPasProcedure) do
+    ParentEl:=ParentEl.Parent;
+  // ParentEl can be nil, when exit is in program begin block
+  ImplProc:=TPasProcedure(ParentEl);
+  ResultVarName:='';
+  if ImplProc<>nil then
+    begin
+    ImplProcScope:=ImplProc.CustomData as TPas2JSProcedureScope;
+    if ImplProc.ProcType is TPasFunctionType then
+      begin
+      ResultVarName:=ImplProcScope.ResultVarName; // ResultVarName needs ImplProc
+      if ResultVarName='' then
+        ResultVarName:=ResolverResultVar;
+      end;
+    end;
   Result:=TJSReturnStatement(CreateElement(TJSReturnStatement,El));
   if (El is TParamsExpr) and (length(TParamsExpr(El).Params)>0) then
     begin
-    // with parameter. convert "exit(param);" -> "return param;"
-    TJSReturnStatement(Result).Expr:=ConvertExpression(TParamsExpr(El).Params[0],AContext);
+    // with parameter, e.g. "exit(param);"
+    ResultIsRead:=false;
+    if (ResultVarName<>'') then
+      begin
+      DeclProc:=ImplProcScope.DeclarationProc;
+      if DeclProc=nil then
+        DeclProc:=ImplProc; // Note: references refer to ResultEl of DeclProc
+      ResultEl:=TPasFunctionType(DeclProc.ProcType).ResultEl;
+      ParentEl:=El.Parent;
+      while (ParentEl<>ImplProc) do
+        begin
+        if ParentEl is TPasImplTry then
+          begin
+          ImplTry:=TPasImplTry(ParentEl);
+          if ImplTry.FinallyExcept is TPasImplTryFinally then
+            begin
+            if AContext.Resolver.ImplBlockReadsDecl(ImplTry.FinallyExcept,ResultEl) then
+              begin
+              ResultIsRead:=true;
+              break;
+              end;
+            end;
+          end;
+        ParentEl:=ParentEl.Parent;
+        end;
+      end;
+
+    if ResultIsRead then
+      begin
+      // create "Result = param; return Result;"
+      AssignSt:=TJSSimpleAssignStatement(CreateElement(TJSSimpleAssignStatement,El));
+      AssignSt.LHS:=CreatePrimitiveDotExpr(ResultVarName,El);
+      AssignSt.Expr:=ConvertExpression(TParamsExpr(El).Params[0],AContext);
+      TJSReturnStatement(Result).Expr:=CreatePrimitiveDotExpr(ResultVarName,El);
+      St:=TJSStatementList(CreateElement(TJSStatementList,El));
+      St.A:=AssignSt;
+      St.B:=Result;
+      Result:=St;
+      end
+    else
+      begin
+      // create "return param;"
+      TJSReturnStatement(Result).Expr:=ConvertExpression(TParamsExpr(El).Params[0],AContext);
+      end;
     end
   else
     begin
     // without parameter
-    if (Proc<>nil) and (Proc.ProcType is TPasFunctionType) then
+    if (ResultVarName<>'') then
       begin
-      // in a function, "return result;"
-      Scope:=Proc.CustomData as TPas2JSProcedureScope;
-      VarName:=Scope.ResultVarName;
-      if VarName='' then
-        VarName:=ResolverResultVar;
-      TJSReturnStatement(Result).Expr:=CreatePrimitiveDotExpr(VarName,El);
+      // in a function, "return Result;"
+      TJSReturnStatement(Result).Expr:=CreatePrimitiveDotExpr(ResultVarName,El);
       end
     else
       ; // in a procedure, "return;" which means "return undefined;"
@@ -14374,7 +14481,7 @@ var
   AncestorPath, OwnerName, DestructorName, FnName, IntfKind: String;
   C: TClass;
   AssignSt: TJSSimpleAssignStatement;
-  NeedInitFunction, HasConstructor: Boolean;
+  NeedInitFunction, HasConstructor, IsJSFunction, NeedClassExt: Boolean;
   Proc: TPasProcedure;
   aResolver: TPas2JSResolver;
 begin
@@ -14419,11 +14526,17 @@ begin
   Call:=CreateCallExpression(El);
   try
     AncestorIsExternal:=(Ancestor is TPasClassType) and TPasClassType(Ancestor).IsExternal;
+    IsJSFunction:=aResolver.IsExternalClass_Name(El,'Function');
+
+    NeedClassExt:=AncestorIsExternal or IsJSFunction;
+    if NeedClassExt and (El.ObjKind<>okClass) then
+      RaiseNotSupported(El,AContext,20200627083750);
+
     if El.ObjKind=okInterface then
       FnName:=GetBIName(pbifnIntfCreate)
     else if El.ObjKind in okAllHelpers then
       FnName:=GetBIName(pbifnCreateHelper)
-    else if AncestorIsExternal then
+    else if NeedClassExt then
       FnName:=GetBIName(pbifnCreateClassExt)
     else
       FnName:=GetBIName(pbifnCreateClass);
@@ -14462,7 +14575,7 @@ begin
       AncestorPath:=CreateReferencePath(Ancestor,AContext,rpkPathAndName);
     Call.AddArg(CreatePrimitiveDotExpr(AncestorPath,El));
 
-    if AncestorIsExternal and (El.ObjKind=okClass) then
+    if NeedClassExt then
       begin
       // add the name of the NewInstance function
       if Scope.NewInstanceFunction<>nil then
@@ -16738,7 +16851,10 @@ begin
           // clone sub static array
           VarAssignSt.Expr:=CreateCloneStaticArray(PasVar,TPasArrayType(PasVarType),
                                               SrcExpr,aContext);
-          end;
+          end
+        else
+          // reference dynamic array
+          VarAssignSt.Expr:=CreateArrayRef(PasVar,SrcExpr);
         end
       else if PasVarClass=TPasSetType then
         begin
@@ -24455,6 +24571,7 @@ var
   NewFields, Vars, Methods: TFPList;
   ok, IsFull: Boolean;
   VarSt: TJSVariableStatement;
+  bifn: TPas2JSBuiltInName;
 begin
   Result:=nil;
   if El.Name='' then
@@ -24472,7 +24589,17 @@ begin
   try
     // rtl.recNewT()
     Call:=CreateCallExpression(El);
-    Call.Expr:=CreateMemberExpression([GetBIName(pbivnRTL),GetBIName(pbifnRecordCreateType)]);
+    bifn:=pbifnRecordCreateType;
+    {$IFDEF EnableDelaySpecialize}
+    RecScope:=TPas2JSRecordScope(El.CustomData);
+    if RecScope.SpecializedFromItem<>nil then
+      begin
+      if RecScope.SpecializedFromItem.FirstSpecialize.GetModule<>EL.GetModule then
+        bifn:=pbifnRecordCreateSpecializeType;
+      end;
+    {$ENDIF}
+
+    Call.Expr:=CreateMemberExpression([GetBIName(pbivnRTL),GetBIName(bifn)]);
 
     // types are stored in interface/implementation
     if El.Parent is TProcedureBody then
@@ -24541,12 +24668,9 @@ begin
           PasVarType:=aResolver.ResolveAliasType(PasVar.VarType);
           if PasVarType.ClassType=TPasArrayType then
             begin
-            if length(TPasArrayType(PasVarType).Ranges)>0 then
-              begin
-              // sub static array
-              NewFields.Add(PasVar);
-              continue;
-              end;
+            // sub array
+            NewFields.Add(PasVar);
+            continue;
             end
           else if PasVarType.ClassType=TPasRecordType then
             begin

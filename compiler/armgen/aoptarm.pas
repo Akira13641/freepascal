@@ -874,7 +874,11 @@ Implementation
             not(RegModifiedBetween(taicpu(p).oper[1]^.reg,p,hp1)) then
             begin
               DebugMsg('Peephole AndStrb2Strb done', p);
+{$ifdef AARCH64}
+              taicpu(hp1).loadReg(0,newreg(R_INTREGISTER,getsupreg(taicpu(p).oper[1]^.reg),R_SUBD));
+{$else AARCH64}
               taicpu(hp1).loadReg(0,taicpu(p).oper[1]^.reg);
+{$endif AARCH64}
               AllocRegBetween(taicpu(p).oper[1]^.reg,p,hp1,UsedRegs);
               RemoveCurrentP(p);
               result:=true;
@@ -940,7 +944,8 @@ Implementation
             remove either the and or the lsl/xsr sequence if possible
           }
 
-          else if cutils.ispowerof2(taicpu(p).oper[2]^.val+1,i) and
+          else if (taicpu(p).oper[2]^.val < high(int64)) and 
+	    cutils.ispowerof2(taicpu(p).oper[2]^.val+1,i) and
             GetNextInstructionUsingReg(p,hp1,taicpu(p).oper[0]^.reg) and
             MatchInstruction(hp1, A_MOV, [taicpu(p).condition], [PF_None]) and
             (taicpu(hp1).ops=3) and

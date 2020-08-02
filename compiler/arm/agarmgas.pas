@@ -108,6 +108,12 @@ unit agarmgas;
         case current_settings.fputype of
           fpu_soft:
             result:='-mfpu=softvfp '+result;
+          fpu_fpa:
+            result:='-mfpu=fpa '+result;
+          fpu_fpa10:
+            result:='-mfpu=fpa10 '+result;
+          fpu_fpa11:
+            result:='-mfpu=fpa11 '+result;
           fpu_vfpv2:
             result:='-mfpu=vfpv2 '+result;
           fpu_vfpv3:
@@ -165,7 +171,7 @@ unit agarmgas;
     function TArmAppleGNUAssembler.MakeCmdLine: TCmdStr;
       begin
         result:=inherited MakeCmdLine;
-	if (asminfo^.id = as_clang) then
+	if (asminfo^.id in [as_clang_gas,as_clang_asdarwin]) then
           begin
             if fputypestrllvm[current_settings.fputype] <> '' then
               result:='-m'+fputypestrllvm[current_settings.fputype]+' '+result;
@@ -456,7 +462,7 @@ unit agarmgas;
             idtxt  : 'AS-DARWIN';
             asmbin : 'as';
             asmcmd : '-o $OBJ $EXTRAOPT $ASM -arch $ARCH';
-            supported_targets : [system_arm_darwin];
+            supported_targets : [system_arm_ios];
             flags : [af_needar,af_smartlink_sections,af_supports_dwarf,af_stabs_use_function_absolute_addresses];
             labelprefix : 'L';
             labelmaxlen : -1;
@@ -467,12 +473,12 @@ unit agarmgas;
 
        as_arm_clang_darwin_info : tasminfo =
           (
-            id     : as_clang;
+            id     : as_clang_asdarwin;
             idtxt  : 'CLANG';
             asmbin : 'clang';
-            asmcmd : '-c -o $OBJ $EXTRAOPT -arch $ARCH $DARWINVERSION -x assembler $ASM';
-            supported_targets : [system_arm_darwin];
-            flags : [af_needar,af_smartlink_sections,af_supports_dwarf];
+            asmcmd : '-x assembler -c -target $TRIPLET -o $OBJ $EXTRAOPT -x assembler $ASM';
+            supported_targets : [system_arm_ios];
+            flags : [af_needar,af_smartlink_sections,af_supports_dwarf,af_llvm];
             labelprefix : 'L';
             labelmaxlen : -1;
             comment : '# ';

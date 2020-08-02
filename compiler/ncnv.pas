@@ -1175,7 +1175,7 @@ implementation
         newstat  : tstatementnode;
         restemp  : ttempcreatenode;
         pchtemp  : pchar;
-        arrsize  : aint;
+        arrsize  : tcgint;
         chartype : string[8];
       begin
         result := nil;
@@ -2007,7 +2007,12 @@ implementation
         elemnode:tarrayconstructornode;
       begin
         { assignment of []? }
-        if (left.nodetype=arrayconstructorn) and not assigned(tarrayconstructornode(left).left) then
+        if (
+              (left.nodetype=arrayconstructorn) and
+              not assigned(tarrayconstructornode(left).left)
+            ) or
+              is_emptyset(left)
+            then
           begin
             result:=cnilnode.create;
             exit;

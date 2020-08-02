@@ -577,7 +577,9 @@ implementation
 
         if variantdispatch then
           begin
-            tcb.emit_pchar_const(pchar(methodname),length(methodname),true);
+            { length-1, because the following names variable *always* starts
+              with #0 which will be the terminator for methodname }
+            tcb.emit_pchar_const(pchar(methodname),length(methodname)-1,true);
             { length-1 because we added a null terminator to the string itself
               already }
             tcb.emit_pchar_const(pchar(names),length(names)-1,true);
@@ -731,7 +733,6 @@ implementation
     procedure tcallparanode.copy_value_by_ref_para;
       var
         initstat,
-        copybackstat,
         finistat: tstatementnode;
         finiblock: tblocknode;
         paratemp: ttempcreatenode;
@@ -754,7 +755,6 @@ implementation
         if not is_array_constructor(left.resultdef) then
           begin
             fparainit:=internalstatements(initstat);
-            fparacopyback:=internalstatements(copybackstat);
             finiblock:=internalstatements(finistat);
             paratemp:=nil;
 
@@ -931,10 +931,8 @@ implementation
                 left:=ctemprefnode.create(paratemp);
               end;
             addstatement(finistat,ctempdeletenode.create(paratemp));
-            addstatement(copybackstat,finiblock);
             firstpass(fparainit);
             firstpass(left);
-            firstpass(fparacopyback);
           end;
       end;
 
@@ -3516,7 +3514,18 @@ implementation
                   if not assigned(right) then
                     begin
                       if assigned(procdefinition.owner.defowner) then
-                        hiddentree:=cloadparentfpnode.create(tprocdef(procdefinition.owner.defowner),lpf_forpara)
+                        begin
+                          if paramanager.can_opt_unused_para(currpara) then
+                            { If parentfp is unused by the target proc, create a dummy
+                              pointerconstnode which will be discarded later. }
+                            hiddentree:=cpointerconstnode.create(0,currpara.vardef)
+                          else
+                            begin
+                              hiddentree:=cloadparentfpnode.create(tprocdef(procdefinition.owner.defowner),lpf_forpara);
+                              if is_nested_pd(current_procinfo.procdef) then
+                                current_procinfo.set_needs_parentfp(tprocdef(procdefinition.owner.defowner).parast.symtablelevel);
+                           end;
+                        end
                       { exceptfilters called from main level are not owned }
                       else if procdefinition.proctypeoption=potype_exceptfilter then
                         hiddentree:=cloadparentfpnode.create(current_procinfo.procdef,lpf_forpara)

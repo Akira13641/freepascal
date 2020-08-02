@@ -131,6 +131,13 @@ interface
         constructor create;override;
       end;
 
+      { TZXSpectrumIntelHexExeOutput }
+
+      TZXSpectrumIntelHexExeOutput = class(TIntelHexExeOutput)
+      public
+        constructor create;override;
+      end;
+
 implementation
 
     uses
@@ -351,9 +358,11 @@ implementation
             else if (p.objsection=CurrObjSec) and
                     (p.bind<>AB_COMMON) and
                     (Reloctype=RELOC_RELATIVE) then
+{$push} {$R-}{$Q-}
               begin
                 data:=data+symaddr-len-CurrObjSec.Size;
               end
+{$pop}
             else
               begin
                 objreloc:=TRelRelocation.CreateSection(CurrObjSec.Size,p.objsection,Reloctype);
@@ -618,6 +627,7 @@ implementation
         c: Char;
       begin
         s:='';
+        c:=#0;
         if AtEoF then
           begin
             result:=false;
@@ -923,6 +933,8 @@ implementation
         FReader:=AReader;
         InputFileName:=AReader.FileName;
         Data:=CObjData.Create(InputFileName);
+        ExpectedAreas:=-1;
+        ExpectedSymbols:=-1;
         result:=false;
         s:='';
         repeat
@@ -1319,6 +1331,19 @@ implementation
         inherited create;
         CObjData:=TRelObjData;
         MaxMemPos:=$FFFF;
+      end;
+
+{*****************************************************************************
+                         TZXSpectrumIntelHexExeOutput
+*****************************************************************************}
+
+    constructor TZXSpectrumIntelHexExeOutput.create;
+      begin
+        inherited create;
+        { The ZX Spectrum RTL switches to interrupt mode 2, and install an
+          interrupt handler + table, starting at address $FDFD, so we must limit
+          program size to $FDFC }
+        MaxMemPos:=$FDFC;
       end;
 
 {*****************************************************************************
