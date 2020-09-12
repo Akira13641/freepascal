@@ -260,7 +260,10 @@ interface
        { specified with -FW and -Fw }
        wpofeedbackinput,
        wpofeedbackoutput : TPathStr;
-
+{$ifdef XTENSA}
+       { specified with -Ff }
+       idfpath           : TPathStr;
+{$endif XTENSA}
        { external assembler extra option }
        asmextraopt       : string;
 
@@ -1638,6 +1641,9 @@ implementation
         cshared:=false;
         rlinkpath:='';
         sysrootpath:='';
+{$ifdef XTENSA}
+        idfpath:='';
+{$endif XTENSA}
 
         { Search Paths }
         unicodepath:='';

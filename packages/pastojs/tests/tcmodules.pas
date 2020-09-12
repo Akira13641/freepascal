@@ -32,7 +32,7 @@ uses
 const
   // default parser+scanner options
   po_tcmodules = po_Pas2js+[po_KeepScannerError];
-  co_tcmodules = [coNoTypeInfo];
+  co_tcmodules = [];
 type
   TSrcMarkerKind = (
     mkLabel,
@@ -111,7 +111,7 @@ type
     FExpectedErrorNumber: integer;
     FFilename: string;
     FFileResolver: TStreamResolver;
-    FJSImplementationSrc: TJSSourceElements;
+    FHub: TPas2JSResolverHub;
     FJSImplementationUses: TJSArrayLiteral;
     FJSInitBody: TJSFunctionBody;
     FJSImplentationUses: TJSArrayLiteral;
@@ -131,6 +131,7 @@ type
     FSkipTests: boolean;
     FSource: TStringList;
     FFirstPasStatement: TPasImplBlock;
+    FWithTypeInfo: boolean;
     {$IFDEF EnablePasTreeGlobalRefCount}
     FElementRefCountAtSetup: int64;
     {$ENDIF}
@@ -142,6 +143,7 @@ type
     procedure OnParserLog(Sender: TObject; const Msg: String);
     procedure OnPasResolverLog(Sender: TObject; const Msg: String);
     procedure OnScannerLog(Sender: TObject; const Msg: String);
+    procedure SetWithTypeInfo(const AValue: boolean);
   protected
     procedure SetUp; override;
     function CreateConverter: TPasToJSConverter; virtual;
@@ -208,7 +210,6 @@ type
     property JSInterfaceUses: TJSArrayLiteral read FJSInterfaceUses;
     property JSModuleSrc: TJSSourceElements read FJSModuleSrc;
     property JSInitBody: TJSFunctionBody read FJSInitBody;
-    property JSImplementationSrc: TJSSourceElements read FJSImplementationSrc;
     property ExpectedErrorClass: ExceptClass read FExpectedErrorClass write FExpectedErrorClass;
     property ExpectedErrorMsg: string read FExpectedErrorMsg write FExpectedErrorMsg;
     property ExpectedErrorNumber: integer read FExpectedErrorNumber write FExpectedErrorNumber;
@@ -216,12 +217,14 @@ type
   public
     constructor Create; override;
     destructor Destroy; override;
+    property Hub: TPas2JSResolverHub read FHub;
     property Source: TStringList read FSource;
     property FileResolver: TStreamResolver read FFileResolver;
     property Scanner: TPas2jsPasScanner read FScanner;
     property Parser: TTestPasParser read FParser;
     property MsgCount: integer read GetMsgCount;
     property Msgs[Index: integer]: TTestHintMessage read GetMsgs;
+    property WithTypeInfo: boolean read FWithTypeInfo write SetWithTypeInfo;
   end;
 
   { TTestModule }
@@ -1246,6 +1249,16 @@ begin
   FHintMsgs.Add(Item);
 end;
 
+procedure TCustomTestModule.SetWithTypeInfo(const AValue: boolean);
+begin
+  if FWithTypeInfo=AValue then Exit;
+  FWithTypeInfo:=AValue;
+  if AValue then
+    Converter.Options:=Converter.Options-[coNoTypeInfo]
+  else
+    Converter.Options:=Converter.Options+[coNoTypeInfo];
+end;
+
 function TCustomTestModule.LoadUnit(const aUnitName: String): TPasModule;
 var
   i: Integer;
@@ -1309,7 +1322,10 @@ begin
 
   inherited SetUp;
   FSkipTests:=false;
+  FWithTypeInfo:=false;
   FSource:=TStringList.Create;
+
+  FHub:=TPas2JSResolverHub.Create(Self);
   FModules:=TObjectList.Create(true);
 
   FFilename:='test1.pp';
@@ -1335,9 +1351,16 @@ begin
 end;
 
 function TCustomTestModule.CreateConverter: TPasToJSConverter;
+var
+  Options: TPasToJsConverterOptions;
 begin
   Result:=TPasToJSConverter.Create;
-  Result.Options:=co_tcmodules;
+  Options:=co_tcmodules;
+  if WithTypeInfo then
+    Exclude(Options,coNoTypeInfo)
+  else
+    Include(Options,coNoTypeInfo);
+  Result.Options:=Options;
   Result.Globals:=TPasToJSConverterGlobals.Create(Result);
 end;
 
@@ -1371,6 +1394,7 @@ begin
   FHintMsgs.Clear;
   FHintMsgsGood.Clear;
   FSkipTests:=false;
+  FWithTypeInfo:=false;
   FJSRegModuleCall:=nil;
   FJSModuleCallArgs:=nil;
   FJSImplentationUses:=nil;
@@ -1404,6 +1428,7 @@ begin
     ReleaseAndNil(TPasElement(FModule){$IFDEF CheckPasTreeRefCount},'CreateElement'{$ENDIF});
     FEngine:=nil;
     end;
+  FreeAndNil(FHub);
 
   inherited TearDown;
   {$IFDEF EnablePasTreeGlobalRefCount}
@@ -1558,6 +1583,7 @@ begin
   Result.AddObjFPCBuiltInIdentifiers(btAllJSBaseTypes,bfAllJSBaseProcs);
   Result.OnFindUnit:=@OnPasResolverFindUnit;
   Result.OnLog:=@OnPasResolverLog;
+  Result.Hub:=Hub;
   FModules.Add(Result);
 end;
 
@@ -1664,6 +1690,39 @@ begin
     begin
     Intf.AddStrings([
     'type',
+    '  TTypeKind = (',
+    '    tkUnknown,  // 0',
+    '    tkInteger,  // 1',
+    '    tkChar,     // 2 in Delphi/FPC tkWChar, tkUChar',
+    '    tkString,   // 3 in Delphi/FPC tkSString, tkWString or tkUString',
+    '    tkEnumeration, // 4',
+    '    tkSet,      // 5',
+    '    tkDouble,   // 6',
+    '    tkBool,     // 7',
+    '    tkProcVar,  // 8  function or procedure',
+    '    tkMethod,   // 9  proc var of object',
+    '    tkArray,    // 10 static array',
+    '    tkDynArray, // 11',
+    '    tkRecord,   // 12',
+    '    tkClass,    // 13',
+    '    tkClassRef, // 14',
+    '    tkPointer,  // 15',
+    '    tkJSValue,  // 16',
+    '    tkRefToProcVar, // 17  variable of procedure type',
+    '    tkInterface, // 18',
+    '    //tkObject,',
+    '    //tkSString,tkLString,tkAString,tkWString,',
+    '    //tkVariant,',
+    '    //tkWChar,',
+    '    //tkInt64,',
+    '    //tkQWord,',
+    '    //tkInterfaceRaw,',
+    '    //tkUString,tkUChar,',
+    '    tkHelper,   // 19',
+    '    //tkFile,',
+    '    tkExtClass  // 20',
+    '    );',
+    '  TTypeKinds = set of TTypeKind;',
     '  TTypeInfo = class external name ''rtl.tTypeInfo'' end;',
     '  TTypeInfoInteger = class external name ''rtl.tTypeInfoInteger''(TTypeInfo)',
     '  end;',
@@ -1917,12 +1976,6 @@ begin
     exit;
   Arg:=JSModuleCallArgs.Elements.Elements[3];
   CheckUsesList('implementation',Arg,FJSImplentationUses);
-
-  // optional: implementation function()
-  if JSModuleCallArgs.Elements.Count<5 then
-    exit;
-  Arg:=JSModuleCallArgs.Elements.Elements[4];
-  CheckFunctionParam('module impl-function',Arg,FJSImplementationSrc);
 end;
 
 procedure TCustomTestModule.ConvertProgram;
@@ -1976,40 +2029,35 @@ var
   ActualSrc, ExpectedSrc, InitName: String;
 begin
   ActualSrc:=JSToStr(JSModuleSrc);
-  ExpectedSrc:=
-    'var $mod = this;'+LineEnding
-   +Statements;
   if coUseStrict in Converter.Options then
-    ExpectedSrc:='"use strict";'+LineEnding+ExpectedSrc;
-  if Module is TPasProgram then
-    InitName:='$main'
+    ExpectedSrc:='"use strict";'+LineEnding
   else
-    InitName:='$init';
+    ExpectedSrc:='';
+  ExpectedSrc:=ExpectedSrc+'var $mod = this;'+LineEnding;
+  ExpectedSrc:=ExpectedSrc+Statements;
+
+  // unit implementation
+  if (Trim(ImplStatements)<>'') then
+    ExpectedSrc:=ExpectedSrc+LineEnding
+      +'$mod.$implcode = function () {'+LineEnding
+      +ImplStatements
+      +'};'+LineEnding;
+
+  // program main or unit initialization
   if (Module is TPasProgram) or (Trim(InitStatements)<>'') then
+    begin
+    if Module is TPasProgram then
+      InitName:='$main'
+    else
+      InitName:='$init';
     ExpectedSrc:=ExpectedSrc+LineEnding
       +'$mod.'+InitName+' = function () {'+LineEnding
       +InitStatements
       +'};'+LineEnding;
+    end;
+
   //writeln('TCustomTestModule.CheckSource ExpectedIntf="',ExpectedSrc,'"');
   //writeln('TTestModule.CheckSource InitStatements="',Trim(InitStatements),'"');
-  CheckDiff(Msg,ExpectedSrc,ActualSrc);
-
-  if (JSImplementationSrc<>nil) then
-    begin
-    ActualSrc:=JSToStr(JSImplementationSrc);
-    ExpectedSrc:=
-      'var $mod = this;'+LineEnding
-     +'var $impl = $mod.$impl;'+LineEnding
-     +ImplStatements;
-    end
-  else
-    begin
-    ActualSrc:='';
-    ExpectedSrc:=ImplStatements;
-    end;
-  //writeln('TTestModule.CheckSource InitStatements="',InitStatements,'"');
-  //writeln('TCustomTestModule.CheckSource Expected: ',ExpectedSrc);
-
   CheckDiff(Msg,ExpectedSrc,ActualSrc);
 end;
 
@@ -2031,6 +2079,7 @@ var
 begin
   aResolver:=GetResolver(Filename);
   AssertNotNull('missing resolver of unit '+Filename,aResolver);
+  AssertNotNull('missing resolver.module of unit '+Filename,aResolver.Module);
   {$IFDEF VerbosePas2JS}
   writeln('CheckUnit '+Filename+' converting ...');
   {$ENDIF}
@@ -9816,16 +9865,16 @@ begin
     'this.ArrJSValue = [];',
     '']),
     LinesToStr([ // $mod.$main
-    '$mod.ArrInt = $mod.ArrInt;',
+    '$mod.ArrInt = rtl.arrayRef($mod.ArrInt);',
     '$mod.ArrInt = rtl.arrayConcatN($mod.ArrInt, $mod.ArrInt);',
     '$mod.ArrInt = rtl.arrayConcatN($mod.ArrInt, $mod.ArrInt, $mod.ArrInt);',
-    '$mod.ArrRec = $mod.ArrRec;',
+    '$mod.ArrRec = rtl.arrayRef($mod.ArrRec);',
     '$mod.ArrRec = rtl.arrayConcat($mod.TRec, $mod.ArrRec, $mod.ArrRec);',
     '$mod.ArrRec = rtl.arrayConcat($mod.TRec, $mod.ArrRec, $mod.ArrRec, $mod.ArrRec);',
-    '$mod.ArrSet = $mod.ArrSet;',
+    '$mod.ArrSet = rtl.arrayRef($mod.ArrSet);',
     '$mod.ArrSet = rtl.arrayConcat("refSet", $mod.ArrSet, $mod.ArrSet);',
     '$mod.ArrSet = rtl.arrayConcat("refSet", $mod.ArrSet, $mod.ArrSet, $mod.ArrSet);',
-    '$mod.ArrJSValue = $mod.ArrJSValue;',
+    '$mod.ArrJSValue = rtl.arrayRef($mod.ArrJSValue);',
     '$mod.ArrJSValue = rtl.arrayConcatN($mod.ArrJSValue, $mod.ArrJSValue);',
     '$mod.ArrJSValue = rtl.arrayConcatN($mod.ArrJSValue, $mod.ArrJSValue, $mod.ArrJSValue);',
     '$mod.ArrInt = rtl.arrayConcatN([1], $mod.ArrInt);',
@@ -16111,7 +16160,7 @@ end;
 
 procedure TTestModule.TestNestedClass_Alias;
 begin
-  Converter.Options:=Converter.Options-[coNoTypeInfo];
+  WithTypeInfo:=true;
   StartProgram(false);
   Add([
   'type',
@@ -16147,7 +16196,7 @@ end;
 
 procedure TTestModule.TestNestedClass_Record;
 begin
-  Converter.Options:=Converter.Options-[coNoTypeInfo];
+  WithTypeInfo:=true;
   StartProgram(false);
   Add([
   'type',
@@ -16213,7 +16262,7 @@ end;
 
 procedure TTestModule.TestNestedClass_Class;
 begin
-  Converter.Options:=Converter.Options-[coNoTypeInfo];
+  WithTypeInfo:=true;
   StartProgram(false);
   Add([
   'type',
@@ -16957,28 +17006,35 @@ end;
 procedure TTestModule.TestExternalClass_Is;
 begin
   StartProgram(false);
-  Add('{$modeswitch externalclass}');
-  Add('type');
-  Add('  TExtA = class external name ''ExtA''');
-  Add('  end;');
-  Add('  TExtAClass = class of TExtA;');
-  Add('  TExtB = class external name ''ExtB'' (TExtA)');
-  Add('  end;');
-  Add('  TExtBClass = class of TExtB;');
-  Add('  TExtC = class (TExtB)');
-  Add('  end;');
-  Add('  TExtCClass = class of TExtC;');
-  Add('var');
-  Add('  A: texta; ClA: TExtAClass;');
-  Add('  B: textb; ClB: TExtBClass;');
-  Add('  C: textc; ClC: TExtCClass;');
-  Add('begin');
-  Add('  if a is textb then ;');
-  Add('  if a is textc then ;');
-  Add('  if b is textc then ;');
-  Add('  if cla is textb then ;');
-  Add('  if cla is textc then ;');
-  Add('  if clb is textc then ;');
+  Add([
+  '{$modeswitch externalclass}',
+  'type',
+  '  TExtA = class external name ''ExtA''',
+  '  end;',
+  '  TExtAClass = class of TExtA;',
+  '  TExtB = class external name ''ExtB'' (TExtA)',
+  '  end;',
+  '  TExtBClass = class of TExtB;',
+  '  TExtC = class (TExtB)',
+  '  end;',
+  '  TExtCClass = class of TExtC;',
+  'var',
+  '  A: texta; ClA: TExtAClass;',
+  '  B: textb; ClB: TExtBClass;',
+  '  C: textc; ClC: TExtCClass;',
+  'begin',
+  '  if a is textb then ;',
+  '  if a is textc then ;',
+  '  if b is textc then ;',
+  '  if cla is textb then ;',
+  '  if cla is textc then ;',
+  '  if clb is textc then ;',
+  '  try',
+  '  except',
+  '  on TExtA do ;',
+  '  on e: TExtB do ;',
+  '  end;',
+  '']);
   ConvertProgram;
   CheckSource('TestExternalClass_Is',
     LinesToStr([ // statements
@@ -17002,6 +17058,12 @@ begin
     'if (rtl.isExt($mod.ClA, ExtB)) ;',
     'if (rtl.is($mod.ClA, $mod.TExtC)) ;',
     'if (rtl.is($mod.ClB, $mod.TExtC)) ;',
+    'try {} catch ($e) {',
+    '  if (rtl.isExt($e,ExtA)) {}',
+    '  else if (rtl.isExt($e,ExtB)) {',
+    '    var e = $e;',
+    '  } else throw $e',
+    '};',
     '']));
 end;
 
@@ -28450,7 +28512,7 @@ end;
 
 procedure TTestModule.TestRTTI_IntRange;
 begin
-  Converter.Options:=Converter.Options-[coNoTypeInfo];
+  WithTypeInfo:=true;
   StartProgram(true,[supTypeInfo]);
   Add([
   '{$modeswitch externalclass}',
@@ -28459,9 +28521,12 @@ begin
   '  TColor = type TGraphicsColor;',
   'var',
   '  p: TTypeInfo;',
+  '  k: TTypeKind;',
   'begin',
   '  p:=typeinfo(TGraphicsColor);',
   '  p:=typeinfo(TColor);',
+  '  k:=GetTypeKind(TGraphicsColor);',
+  '  k:=GetTypeKind(TColor);',
   '']);
   ConvertProgram;
   CheckSource('TestRTTI_IntRange',
@@ -28473,16 +28538,19 @@ begin
     '});',
     '$mod.$rtti.$inherited("TColor", $mod.$rtti["TGraphicsColor"], {});',
     'this.p = null;',
+    'this.k = 0;',
     '']),
     LinesToStr([ // $mod.$main
     '$mod.p = $mod.$rtti["TGraphicsColor"];',
     '$mod.p = $mod.$rtti["TColor"];',
+    '$mod.k = 1;',
+    '$mod.k = 1;',
     '']));
 end;
 
 procedure TTestModule.TestRTTI_Double;
 begin
-  Converter.Options:=Converter.Options-[coNoTypeInfo];
+  WithTypeInfo:=true;
   StartProgram(true,[supTypeInfo]);
   Add([
   '{$modeswitch externalclass}',
@@ -28508,7 +28576,7 @@ end;
 
 procedure TTestModule.TestRTTI_ProcType;
 begin
-  Converter.Options:=Converter.Options-[coNoTypeInfo];
+  WithTypeInfo:=true;
   StartProgram(false);
   Add('type');
   Add('  TProcA = procedure;');
@@ -28551,7 +28619,7 @@ end;
 
 procedure TTestModule.TestRTTI_ProcType_ArgFromOtherUnit;
 begin
-  Converter.Options:=Converter.Options-[coNoTypeInfo];
+  WithTypeInfo:=true;
 
   AddModuleWithIntfImplSrc('unit2.pas',
     LinesToStr([
@@ -28593,7 +28661,7 @@ end;
 
 procedure TTestModule.TestRTTI_EnumAndSetType;
 begin
-  Converter.Options:=Converter.Options-[coNoTypeInfo];
+  WithTypeInfo:=true;
   StartProgram(false);
   Add('type');
   Add('  TFlag = (light,dark);');
@@ -28634,7 +28702,7 @@ end;
 
 procedure TTestModule.TestRTTI_EnumRange;
 begin
-  Converter.Options:=Converter.Options-[coNoTypeInfo];
+  WithTypeInfo:=true;
   StartProgram(false);
   Add([
   'type',
@@ -28651,7 +28719,7 @@ end;
 
 procedure TTestModule.TestRTTI_AnonymousEnumType;
 begin
-  Converter.Options:=Converter.Options-[coNoTypeInfo];
+  WithTypeInfo:=true;
   StartProgram(false);
   Add('type');
   Add('  TFlags = set of (red, green);');
@@ -28686,7 +28754,7 @@ end;
 
 procedure TTestModule.TestRTTI_StaticArray;
 begin
-  Converter.Options:=Converter.Options-[coNoTypeInfo];
+  WithTypeInfo:=true;
   StartProgram(false);
   Add('type');
   Add('  TFlag = (light,dark);');
@@ -28738,7 +28806,7 @@ end;
 
 procedure TTestModule.TestRTTI_DynArray;
 begin
-  Converter.Options:=Converter.Options-[coNoTypeInfo];
+  WithTypeInfo:=true;
   StartProgram(false);
   Add('type');
   Add('  TArrStr = array of string;');
@@ -28770,7 +28838,7 @@ end;
 
 procedure TTestModule.TestRTTI_ArrayNestedAnonymous;
 begin
-  Converter.Options:=Converter.Options-[coNoTypeInfo];
+  WithTypeInfo:=true;
   StartProgram(false);
   Add('type');
   Add('  TArr = array of array of longint;');
@@ -28793,7 +28861,7 @@ end;
 
 procedure TTestModule.TestRTTI_PublishedMethodOverloadFail;
 begin
-  Converter.Options:=Converter.Options-[coNoTypeInfo];
+  WithTypeInfo:=true;
   StartProgram(false);
   Add('type');
   Add('  TObject = class');
@@ -28809,7 +28877,7 @@ end;
 
 procedure TTestModule.TestRTTI_PublishedMethodExternalFail;
 begin
-  Converter.Options:=Converter.Options-[coNoTypeInfo];
+  WithTypeInfo:=true;
   StartProgram(false);
   Add('type');
   Add('  TObject = class');
@@ -28824,7 +28892,7 @@ end;
 
 procedure TTestModule.TestRTTI_PublishedClassPropertyFail;
 begin
-  Converter.Options:=Converter.Options-[coNoTypeInfo];
+  WithTypeInfo:=true;
   StartProgram(false);
   Add('type');
   Add('  TObject = class');
@@ -28840,7 +28908,7 @@ end;
 
 procedure TTestModule.TestRTTI_PublishedClassFieldFail;
 begin
-  Converter.Options:=Converter.Options-[coNoTypeInfo];
+  WithTypeInfo:=true;
   StartProgram(false);
   Add('type');
   Add('  TObject = class');
@@ -28855,7 +28923,7 @@ end;
 
 procedure TTestModule.TestRTTI_PublishedFieldExternalFail;
 begin
-  Converter.Options:=Converter.Options-[coNoTypeInfo];
+  WithTypeInfo:=true;
   StartProgram(false);
   Add('{$modeswitch externalclass}');
   Add('type');
@@ -28871,7 +28939,7 @@ end;
 
 procedure TTestModule.TestRTTI_Class_Field;
 begin
-  Converter.Options:=Converter.Options-[coNoTypeInfo];
+  WithTypeInfo:=true;
   StartProgram(false);
   Add('{$modeswitch externalclass}');
   Add('type');
@@ -28951,7 +29019,7 @@ end;
 
 procedure TTestModule.TestRTTI_Class_Method;
 begin
-  Converter.Options:=Converter.Options-[coNoTypeInfo];
+  WithTypeInfo:=true;
   StartProgram(false);
   Add('type');
   Add('  TObject = class');
@@ -28987,7 +29055,7 @@ end;
 
 procedure TTestModule.TestRTTI_Class_MethodArgFlags;
 begin
-  Converter.Options:=Converter.Options-[coNoTypeInfo];
+  WithTypeInfo:=true;
   StartProgram(false);
   Add('type');
   Add('  TObject = class');
@@ -29017,7 +29085,7 @@ end;
 
 procedure TTestModule.TestRTTI_Class_Property;
 begin
-  Converter.Options:=Converter.Options-[coNoTypeInfo];
+  WithTypeInfo:=true;
   StartProgram(false);
   Add('{$modeswitch externalclass}');
   Add('type');
@@ -29096,7 +29164,7 @@ end;
 
 procedure TTestModule.TestRTTI_Class_PropertyParams;
 begin
-  Converter.Options:=Converter.Options-[coNoTypeInfo];
+  WithTypeInfo:=true;
   StartProgram(false);
   Add('{$modeswitch externalclass}');
   Add('type');
@@ -29131,7 +29199,7 @@ end;
 
 procedure TTestModule.TestRTTI_Class_OtherUnit_TypeAlias;
 begin
-  Converter.Options:=Converter.Options-[coNoTypeInfo];
+  WithTypeInfo:=true;
   AddModuleWithIntfImplSrc('unit1.pas',
     'type TColor = -5..5;',
     '');
@@ -29178,7 +29246,7 @@ end;
 
 procedure TTestModule.TestRTTI_Class_OmitRTTI;
 begin
-  Converter.Options:=Converter.Options-[coNoTypeInfo];
+  WithTypeInfo:=true;
   StartProgram(false);
   Add([
   '{$modeswitch omitrtti}',
@@ -29207,7 +29275,7 @@ end;
 
 procedure TTestModule.TestRTTI_IndexModifier;
 begin
-  Converter.Options:=Converter.Options-[coNoTypeInfo];
+  WithTypeInfo:=true;
   StartProgram(false);
   Add([
   'type',
@@ -29286,7 +29354,7 @@ end;
 
 procedure TTestModule.TestRTTI_StoredModifier;
 begin
-  Converter.Options:=Converter.Options-[coNoTypeInfo];
+  WithTypeInfo:=true;
   StartProgram(false);
   Add([
   'const',
@@ -29346,7 +29414,7 @@ end;
 
 procedure TTestModule.TestRTTI_DefaultValue;
 begin
-  Converter.Options:=Converter.Options-[coNoTypeInfo];
+  WithTypeInfo:=true;
   StartProgram(false);
   Add([
   'type',
@@ -29473,7 +29541,7 @@ end;
 
 procedure TTestModule.TestRTTI_DefaultValueSet;
 begin
-  Converter.Options:=Converter.Options-[coNoTypeInfo];
+  WithTypeInfo:=true;
   StartProgram(false);
   Add([
   'type',
@@ -29566,7 +29634,7 @@ end;
 
 procedure TTestModule.TestRTTI_DefaultValueRangeType;
 begin
-  Converter.Options:=Converter.Options-[coNoTypeInfo];
+  WithTypeInfo:=true;
   StartProgram(false);
   Add([
   'type',
@@ -29616,7 +29684,7 @@ end;
 
 procedure TTestModule.TestRTTI_DefaultValueInherit;
 begin
-  Converter.Options:=Converter.Options-[coNoTypeInfo];
+  WithTypeInfo:=true;
   StartProgram(false);
   Add([
   'type',
@@ -29663,7 +29731,7 @@ end;
 
 procedure TTestModule.TestRTTI_OverrideMethod;
 begin
-  Converter.Options:=Converter.Options-[coNoTypeInfo];
+  WithTypeInfo:=true;
   StartProgram(false);
   Add('type');
   Add('  TObject = class');
@@ -29698,7 +29766,7 @@ end;
 
 procedure TTestModule.TestRTTI_ReintroduceMethod;
 begin
-  Converter.Options:=Converter.Options-[coNoTypeInfo];
+  WithTypeInfo:=true;
   StartProgram(false);
   Add([
   'type',
@@ -29743,7 +29811,7 @@ end;
 
 procedure TTestModule.TestRTTI_OverloadProperty;
 begin
-  Converter.Options:=Converter.Options-[coNoTypeInfo];
+  WithTypeInfo:=true;
   StartProgram(false);
   Add('type');
   Add('  TObject = class');
@@ -29780,7 +29848,7 @@ end;
 
 procedure TTestModule.TestRTTI_ClassForward;
 begin
-  Converter.Options:=Converter.Options-[coNoTypeInfo];
+  WithTypeInfo:=true;
   StartProgram(false);
   Add('type');
   Add('  TObject = class end;');
@@ -29848,7 +29916,7 @@ end;
 
 procedure TTestModule.TestRTTI_ClassOf;
 begin
-  Converter.Options:=Converter.Options-[coNoTypeInfo];
+  WithTypeInfo:=true;
   StartProgram(false);
   Add('type');
   Add('  TClass = class of tobject;');
@@ -29910,7 +29978,7 @@ end;
 
 procedure TTestModule.TestRTTI_Record;
 begin
-  Converter.Options:=Converter.Options-[coNoTypeInfo];
+  WithTypeInfo:=true;
   StartProgram(false);
   Add('type');
   Add('  integer = longint;');
@@ -29953,7 +30021,7 @@ end;
 
 procedure TTestModule.TestRTTI_RecordAnonymousArray;
 begin
-  Converter.Options:=Converter.Options-[coNoTypeInfo];
+  WithTypeInfo:=true;
   StartProgram(false);
   Add('type');
   Add('  TFloatRec = record');
@@ -30003,7 +30071,7 @@ end;
 
 procedure TTestModule.TestRTTI_LocalTypes;
 begin
-  Converter.Options:=Converter.Options-[coNoTypeInfo];
+  WithTypeInfo:=true;
   StartProgram(false);
   Add([
   'procedure DoIt;',
@@ -30041,7 +30109,7 @@ end;
 
 procedure TTestModule.TestRTTI_TypeInfo_BaseTypes;
 begin
-  Converter.Options:=Converter.Options-[coNoTypeInfo];
+  WithTypeInfo:=true;
   StartProgram(false);
   Add([
   'type',
@@ -30115,7 +30183,7 @@ end;
 
 procedure TTestModule.TestRTTI_TypeInfo_Type_BaseTypes;
 begin
-  Converter.Options:=Converter.Options-[coNoTypeInfo];
+  WithTypeInfo:=true;
   StartProgram(false);
   Add([
   'type',
@@ -30188,7 +30256,7 @@ end;
 
 procedure TTestModule.TestRTTI_TypeInfo_LocalFail;
 begin
-  Converter.Options:=Converter.Options-[coNoTypeInfo];
+  WithTypeInfo:=true;
   StartProgram(false);
   Add('procedure DoIt;');
   Add('type');
@@ -30207,7 +30275,7 @@ end;
 
 procedure TTestModule.TestRTTI_TypeInfo_ExtTypeInfoClasses1;
 begin
-  Converter.Options:=Converter.Options-[coNoTypeInfo];
+  WithTypeInfo:=true;
   StartProgram(true,[supTypeInfo]);
   Add([
   '{$modeswitch externalclass}',
@@ -30275,7 +30343,7 @@ end;
 
 procedure TTestModule.TestRTTI_TypeInfo_ExtTypeInfoClasses2;
 begin
-  Converter.Options:=Converter.Options-[coNoTypeInfo];
+  WithTypeInfo:=true;
   StartProgram(true,[supTypeInfo]);
   Add('{$modeswitch externalclass}');
   Add('type');
@@ -30304,7 +30372,7 @@ begin
   ConvertProgram;
   CheckSource('TestRTTI_TypeInfo_ExtTypeInfoClasses2',
     LinesToStr([ // statements
-    '  $mod.$rtti.$StaticArray("TStaticArr", {',
+    '$mod.$rtti.$StaticArray("TStaticArr", {',
     '  dims: [2],',
     '  eltype: rtl.string',
     '});',
@@ -30341,7 +30409,7 @@ end;
 
 procedure TTestModule.TestRTTI_TypeInfo_ExtTypeInfoClasses3;
 begin
-  Converter.Options:=Converter.Options-[coNoTypeInfo];
+  WithTypeInfo:=true;
   StartProgram(true,[supTypeInfo]);
   Add('{$modeswitch externalclass}');
   Add('type');
@@ -30406,7 +30474,7 @@ end;
 
 procedure TTestModule.TestRTTI_TypeInfo_FunctionClassType;
 begin
-  Converter.Options:=Converter.Options-[coNoTypeInfo];
+  WithTypeInfo:=true;
   StartProgram(true,[supTypeInfo]);
   Add([
   '{$modeswitch externalclass}',
@@ -30477,7 +30545,7 @@ end;
 
 procedure TTestModule.TestRTTI_TypeInfo_MixedUnits_PointerAndClass;
 begin
-  Converter.Options:=Converter.Options-[coNoTypeInfo];
+  WithTypeInfo:=true;
   AddModuleWithIntfImplSrc('typinfo.pas',
     LinesToStr([
     '{$modeswitch externalclass}',
@@ -30557,7 +30625,7 @@ end;
 
 procedure TTestModule.TestRTTI_Interface_Corba;
 begin
-  Converter.Options:=Converter.Options-[coNoTypeInfo];
+  WithTypeInfo:=true;
   StartProgram(true,[supTypeInfo]);
   Add([
   '{$interfaces corba}',
@@ -30620,7 +30688,7 @@ end;
 
 procedure TTestModule.TestRTTI_Interface_COM;
 begin
-  Converter.Options:=Converter.Options-[coNoTypeInfo];
+  WithTypeInfo:=true;
   StartProgram(true,[supTypeInfo]);
   Add([
   '{$interfaces com}',
@@ -30695,7 +30763,7 @@ end;
 
 procedure TTestModule.TestRTTI_ClassHelper;
 begin
-  Converter.Options:=Converter.Options-[coNoTypeInfo];
+  WithTypeInfo:=true;
   StartProgram(true,[supTypeInfo]);
   Add([
   '{$interfaces com}',
@@ -30743,7 +30811,7 @@ end;
 
 procedure TTestModule.TestRTTI_ExternalClass;
 begin
-  Converter.Options:=Converter.Options-[coNoTypeInfo];
+  WithTypeInfo:=true;
   StartProgram(true,[supTypeInfo]);
   Add([
   '{$modeswitch externalclass}',
@@ -30900,7 +30968,7 @@ end;
 
 procedure TTestModule.TestAttributes_Members;
 begin
-  Converter.Options:=Converter.Options-[coNoTypeInfo];
+  WithTypeInfo:=true;
   StartProgram(false);
   Add([
   '{$modeswitch PrefixedAttributes}',
@@ -30996,7 +31064,7 @@ end;
 
 procedure TTestModule.TestAttributes_Types;
 begin
-  Converter.Options:=Converter.Options-[coNoTypeInfo];
+  WithTypeInfo:=true;
   StartProgram(false);
   Add([
   '{$modeswitch PrefixedAttributes}',
@@ -31066,7 +31134,7 @@ end;
 
 procedure TTestModule.TestAttributes_HelperConstructor_Fail;
 begin
-  Converter.Options:=Converter.Options-[coNoTypeInfo];
+  WithTypeInfo:=true;
   StartProgram(false);
   Add([
   '{$modeswitch PrefixedAttributes}',

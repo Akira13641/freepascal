@@ -123,15 +123,7 @@ end;
 Function ExecuteStubCreator(P : PStubCreator) : Boolean; stdcall;
 
 begin
-  Result:=False;
-  try
-    TStubCreator(P).Execute;
-    Result:=True;
-  except
-    On E: Exception do
-      Writeln('Exception ',E.ClassName,' ',E.Message);
-    // Ignore
-  end;
+  Result:=TStubCreator(P).Execute;
 end;
 
 Procedure GetStubCreatorLastError(P : PStubCreator; AError : PAnsiChar;
@@ -155,6 +147,17 @@ begin
     Move(C[1],AErrorClass^,L);
 end;
 
+Procedure SetStubCreatorUnitAliasCallBack(P : PStubCreator; ACallBack : TUnitAliasCallBack; CallBackData : Pointer); stdcall;
+begin
+  TStubCreator(P).OnUnitAlias:=ACallBack;
+  TStubCreator(P).OnUnitAliasData:=CallBackData;
+end;
+
+Procedure AddStubCreatorExtraUnit(P : PStubCreator; AUnitName : PAnsiChar); stdcall;
+begin
+  TStubCreator(P).ExtraUnits:=AUnitName;
+end;
+
 exports
   // Stub creator
   GetStubCreator,
@@ -168,7 +171,9 @@ exports
   GetStubCreatorLastError,
   AddStubCreatorDefine,
   AddStubCreatorForwardClass,
-  ExecuteStubCreator;
+  AddStubCreatorExtraUnit,
+  ExecuteStubCreator,
+  SetStubCreatorUnitAliasCallBack;
 
 end.
 

@@ -211,10 +211,14 @@ const calculated_cmdline:Pchar=nil;
 var
  _stack_top: record end; external name '_stack_top';
 
+{ Interim fix for now, set to large address
+  TODO: provide more realistic value, possibly by inspecting stack pointer
+  when main or task is started
+}
 function StackTop: pointer;
-begin
-  StackTop:=@_stack_top;
-end;
+  begin
+    StackTop:=pointer($3fffffff);
+  end;
 
 
 procedure haltproc;cdecl;external name '_haltproc';
@@ -291,8 +295,8 @@ begin
     programs this does not matter because in the main thread, the variables are located
     in bss
 
-    SysInitExceptions;
   }
+  SysInitExceptions;
 {$endif FPC_HAS_FEATURE_EXCEPTIONS}
 
 {$ifdef FPC_HAS_FEATURE_CONSOLEIO}
@@ -300,12 +304,12 @@ begin
   InOutRes:=0;
 {$endif FPC_HAS_FEATURE_CONSOLEIO}
 
-{$ifdef FPC_HAS_FEATURE_THREADING}
+{ $ifdef FPC_HAS_FEATURE_THREADING}
   { threading }
-  //InitSystemThreads; // Empty call for embedded anyway
-{$endif FPC_HAS_FEATURE_THREADING}
+  InitSystemThreads;
+{ $endif FPC_HAS_FEATURE_THREADING}
 
 {$ifdef FPC_HAS_FEATURE_WIDESTRINGS}
-//  initunicodestringmanager;
+  initunicodestringmanager;
 {$endif FPC_HAS_FEATURE_WIDESTRINGS}
 end.

@@ -19,9 +19,6 @@ interface
 uses
   Classes, SysUtils, strutils, inifiles, pscanner, pparser, pastree, iostream, paswrite;
 
-Const
-  DTypesUnit = 'jsdelphisystem';
-
 type
   { We have to override abstract TPasTreeContainer methods  }
 
@@ -36,6 +33,8 @@ type
 
   TWriteCallBack = Procedure (Data : Pointer; AFileData : PAnsiChar; AFileDataLen: Int32); stdcall;
   TWriteEvent = Procedure(AFileData : String) of object;
+  TUnitAliasCallBack = Function (Data: Pointer; AUnitName: PAnsiChar;
+    var AUnitNameMaxLen: Int32): boolean; {$IFDEF UseCDecl}cdecl{$ELSE}stdcall{$ENDIF};
 
   { TStubCreator }
 
@@ -45,6 +44,7 @@ type
     FHeaderStream: TStream;
     FIncludePaths: TStrings;
     FInputFile: String;
+    FOnUnitAliasData: Pointer;
     FOnWrite: TWriteEvent;
     FOnWriteCallBack: TWriteCallBack;
     FOutputFile: String;
@@ -60,10 +60,12 @@ type
     FCallBackData : Pointer;
     FLastErrorClass : String;
     FLastError : String;
+    FOnUnitAlias : TUnitAliasCallBack;
     procedure SetDefines(AValue: TStrings);
     procedure SetIncludePaths(AValue: TStrings);
     procedure SetOnWrite(AValue: TWriteEvent);
     procedure SetWriteCallback(AValue: TWriteCallBack);
+    function CheckUnitAlias(const AUnitName: String): String;
   Protected
     procedure DoExecute;virtual;
     Procedure DoWriteEvent; virtual;
@@ -75,15 +77,17 @@ type
   Public
     Constructor Create(AOwner : TComponent); override;
     Destructor Destroy; override;
-    Procedure Execute;
+    Function Execute: Boolean;
     Procedure GetLastError(Out AError,AErrorClass : String);
     // Streams take precedence over filenames. They will be freed on destroy!
     // OutputStream can be used combined with write callbacks.
     Property OutputStream : TStream Read FOutputStream Write FOutputStream;
     Property HeaderStream : TStream Read FHeaderStream Write FHeaderStream;
+    Property OnUnitAlias: TUnitAliasCallBack read FOnUnitAlias Write FOnUnitAlias;
+    Property OnUnitAliasData : Pointer Read FOnUnitAliasData Write FOnUnitAliasData;
     Property OnWriteCallBack : TWriteCallBack Read FOnWriteCallBack Write SetWriteCallback;
     Property CallbackData : Pointer Read FCallBackData Write FCallBackData;
-
+    Property ExtraUnits : String Read FExtraUnits write FExtraUnits;
   Published
     Property Defines : TStrings Read FDefines Write SetDefines;
     Property ConfigFileName : String Read FConfigFile Write FConfigFile;
@@ -96,6 +100,8 @@ type
   end;
 
 Implementation
+
+uses Math;
 
 ResourceString
   SErrNoDestGiven = 'No destination file specified.';
@@ -129,6 +135,23 @@ begin
   FreeAndNil(FWriteStream);
   if Assigned(AValue) then
     FWriteStream:=TStringStream.Create('');
+end;
+
+function TStubCreator.CheckUnitAlias(const AUnitName: String): String;
+const
+  MAX_UNIT_NAME_LENGTH = 255;
+
+var
+   UnitMaxLenthName: Integer;
+
+begin
+  Result := AUnitName;
+  UnitMaxLenthName := Max(MAX_UNIT_NAME_LENGTH, Result.Length);
+
+  SetLength(Result, UnitMaxLenthName);
+
+  if FOnUnitAlias(OnUnitAliasData, @Result[1], UnitMaxLenthName) then
+    Result := LeftStr(PChar(Result), UnitMaxLenthName);
 end;
 
 procedure TStubCreator.DoWriteEvent;
@@ -202,19 +225,22 @@ begin
     Include(O,woForwardClasses);
 end;
 
-procedure TStubCreator.Execute;
-
+function TStubCreator.Execute: Boolean;
 begin
   FLastErrorClass:='';
   FLastError:='';
+  Result := False;
+  if Defines.IndexOf('MakeStub')=-1 then
+
   Try
     DoExecute;
+
+    Result := True;
   except
     On E : Exception do
       begin
       FLastErrorClass:=E.Classname;
       FLastError:=E.Message;
-      Raise;
       end;
   end;
 end;
@@ -276,7 +302,7 @@ end;
 
 
 
-Function TStubCreator.GetModule : TPasModule;
+function TStubCreator.GetModule: TPasModule;
 
 Var
   SE : TSimpleEngine;
@@ -302,17 +328,19 @@ begin
       FileResolver.AddIncludePath(S);
     // Scanner
     Scanner := TPascalScanner.Create(FileResolver);
-    Scanner.Options:=[po_AsmWhole,po_KeepClassForward];
+    Scanner.Options:=[po_AsmWhole,po_KeepClassForward,po_ExtConstWithoutExpr];
     SCanner.LogEvents:=SE.ScannerLogEvents;
     SCanner.OnLog:=SE.Onlog;
     For S in FDefines do
       Scanner.AddDefine(S);
+    if FDefines.IndexOf('MAKESTUB')=-1 then
+      Scanner.AddDefine('MAKESTUB');
     Scanner.OpenFile(InputFilename);
     // Parser
     Parser:=TPasParser.Create(Scanner, FileResolver, SE);
     Parser.LogEvents:=SE.ParserLogEvents;
     Parser.OnLog:=SE.Onlog;
-    Parser.Options:=Parser.Options+[po_AsmWhole,po_delphi,po_KeepClassForward];
+    Parser.Options:=Parser.Options+[po_AsmWhole,po_delphi,po_KeepClassForward,po_ExtConstWithoutExpr,po_AsyncProcs];
     Parser.ParseMain(Result);
   finally
     Parser.Free;
@@ -322,7 +350,8 @@ begin
   end;
 end;
 
-function TStubCreator.MaybeGetFileStream(AStream: TStream; const AFileName: String; AfileMode : Word) : TStream;
+function TStubCreator.MaybeGetFileStream(AStream: TStream;
+  const AFileName: String; aFileMode: Word): TStream;
 begin
   If Assigned(AStream) then
     Result:=AStream
@@ -340,7 +369,7 @@ begin
   FLineNumberWidth:=4;
   FIndentSize:=2;
   FExtraUnits:='';
-  FOptions:=[woNoImplementation,woNoExternalClass,woNoExternalVar,woNoExternalFunc];
+  FOptions:=[woNoImplementation,woNoExternalClass,woNoExternalVar,woNoExternalFunc,woNoAsm,woSkipPrivateExternals,woAlwaysRecordHelper,woSkipHints];
 end;
 
 destructor TStubCreator.Destroy;
@@ -354,12 +383,11 @@ begin
 end;
 
 
-procedure TStubCreator.WriteModule(M : TPAsModule);
+procedure TStubCreator.WriteModule(M: TPasModule);
 
 Var
   F,H : TStream;
   W : TPasWriter;
-  U : String;
 
 begin
   W:=Nil;
@@ -380,14 +408,11 @@ begin
        end;
      W:=TPasWriter.Create(F);
      W.Options:=FOptions;
-     U:=FExtraUnits;
-     if Pos(LowerCase(DTypesUnit),LowerCase(U)) = 0 then
-       begin
-       if (U<>'') then
-         U:=','+U;
-       U:=DTypesUnit+U;
-       end;
-     W.ExtraUnits:=U;
+     W.ExtraUnits:=FExtraUnits;
+
+     if Assigned(FOnUnitAlias) then
+       W.OnUnitAlias:=@CheckUnitAlias;
+
      if FIndentSize<>-1 then
        W.IndentSize:=FIndentSize;
      if FLineNumberWidth>0 then

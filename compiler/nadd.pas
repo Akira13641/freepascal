@@ -737,7 +737,7 @@ implementation
               begin
                 case nodetype of
                   muln:
-                   result := cunaryminusnode.create(left.getcopy);
+                   result := ctypeconvnode.create_internal(cunaryminusnode.create(left.getcopy),left.resultdef);
                   else
                     ;
                 end;
@@ -818,9 +818,9 @@ implementation
               begin
                 case nodetype of
                   addn,orn,xorn:
-                   result := right.getcopy;
+                    result := right.getcopy;
                   subn:
-                   result := cunaryminusnode.create(right.getcopy);
+                    result := ctypeconvnode.create_internal(cunaryminusnode.create(right.getcopy),right.resultdef);
                   andn,muln:
                     begin
                       if (cs_opt_level4 in current_settings.optimizerswitches) or
@@ -844,7 +844,7 @@ implementation
               begin
                 case nodetype of
                   muln:
-                   result := cunaryminusnode.create(right.getcopy);
+                   result := ctypeconvnode.create_internal(cunaryminusnode.create(right.getcopy),right.resultdef);
                   else
                     ;
                 end;
@@ -976,7 +976,7 @@ implementation
                           end;
                       subn:
                         begin
-                          result:=cunaryminusnode.create(right.getcopy);
+                          result:=ctypeconvnode.create_internal(cunaryminusnode.create(right.getcopy),right.resultdef);
                           exit;
                         end;
                       else
@@ -1326,7 +1326,9 @@ implementation
                    (right.nodetype in [ltn,lten,gtn,gten]) and
                    (not might_have_sideeffects(left)) and
                    (not might_have_sideeffects(right)) and
-                   is_range_test(taddnode(left),taddnode(right),vl,cl,cr) then
+                   is_range_test(taddnode(left),taddnode(right),vl,cl,cr) and
+                   { avoid optimization being applied to (<string. var > charconst1) and (<string. var < charconst2) }
+                   (vl.resultdef.typ in [orddef,enumdef]) then
                   begin
                     hdef:=get_unsigned_inttype(vl.resultdef);
                     vl:=ctypeconvnode.create_internal(vl.getcopy,hdef);
@@ -1440,7 +1442,7 @@ implementation
                     case nodetype of
                       andn,orn:
                         begin
-                          { full boolean evaluation is only useful if the nodes are not too complex and if no flags/jumps must be converted,
+                          { full boolean evaluation is only useful if the nodes are not too complex and if no jumps must be converted,
                             further, we need to know the expectloc }
                           if (node_complexity(right)<=2) and
                             not(left.expectloc in [LOC_JUMP,LOC_INVALID]) and not(right.expectloc in [LOC_JUMP,LOC_INVALID]) then
@@ -2225,7 +2227,11 @@ implementation
                    This is compatible with the code below for other unsigned types (PFV) }
                  if is_signed(left.resultdef) or
                     is_signed(right.resultdef) or
-                    (nodetype=subn) then
+                    ((nodetype=subn)
+{$if defined(cpu8bitalu) or defined(cpu16bitalu)}
+                     and not (m_tp7 in current_settings.modeswitches)
+{$endif}
+                    ) then
                    begin
                      if nodetype<>subn then
                        CGMessage(type_h_mixed_signed_unsigned);
@@ -2257,10 +2263,14 @@ implementation
              else
                begin
                  { When there is a signed type or there is a minus operation
+                   or in TP mode for 16-bit CPUs
                    we convert to signed int. Otherwise (both are unsigned) we keep
                    the result also unsigned. This is compatible with Delphi (PFV) }
                  if is_signed(ld) or
                     is_signed(rd) or
+{$if defined(cpu16bitalu)}
+                    (m_tp7 in current_settings.modeswitches) or
+{$endif}
                     (nodetype=subn) then
                    begin
                      inserttypeconv(right,sinttype);
@@ -2996,7 +3006,7 @@ implementation
             end;
           end;
 
-         if not codegenerror and
+         if (errorcount=0) and
             not assigned(result) then
            result:=simplify(false);
       end;
