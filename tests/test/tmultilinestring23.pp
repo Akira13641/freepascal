@@ -1,9 +1,9 @@
 program tmultilinestring23;
 
 {$mode ObjFPC}{$H+}
-{$modeswitch MultiLineStrings}
-{$MultiLineStringTrimLeft 5}
 {$modeswitch PrefixedAttributes}
+{$modeswitch MultiLineStrings}
+{$MultiLineStringTrimLeft Auto}
 
 uses RTTI;
 
@@ -41,11 +41,10 @@ var
   A: TMultiLineAttribute;
 
 begin
-  with TRTTIType.Create(TypeInfo(TMyClass)) do begin
-    for TCustomAttribute(A) in GetAttributes() do begin
+  with TRTTIType.Create(TypeInfo(TMyClass)) do
+  begin
+    for TCustomAttribute(A) in GetAttributes() do
       WriteLn(A.StringValue);
-      A.Free();
-    end;
     Free();
   end;
 end.
