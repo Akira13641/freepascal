@@ -290,13 +290,14 @@ implementation
               statement_syssym:=new_dispose_statement(false);
             end;
 
-          in_ord_x :
+          in_ord_x,
+          in_chr_byte:
             begin
               consume(_LKLAMMER);
               in_args:=true;
               p1:=comp_expr([ef_accept_equal]);
               consume(_RKLAMMER);
-              p1:=geninlinenode(in_ord_x,false,p1);
+              p1:=geninlinenode(l,false,p1);
               statement_syssym := p1;
             end;
 
@@ -2233,7 +2234,7 @@ implementation
                                   include(tvecnode(p1).flags,nf_memindex);
                                 end;
 {$else}
-                               internalerror(2013053101);
+                               internalerror(2013053105);
 {$endif}
                              end
                            else
@@ -3032,7 +3033,10 @@ implementation
                                  else
                                    begin
                                      srsym:=tprocdef(hdef).procsym;
-                                     srsymtable:=srsym.owner;
+                                     if assigned(spezcontext.symtable) then
+                                       srsymtable:=spezcontext.symtable
+                                     else
+                                       srsymtable:=srsym.owner;
                                    end;
                                end
                              else

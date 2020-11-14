@@ -505,6 +505,8 @@ interface
         IF_T4,                  { disp8 - tuple - 4 }
         IF_T8,                  { disp8 - tuple - 8 }
         IF_T1S,                 { disp8 - tuple - 1 scalar }
+        IF_T1S8,                { disp8 - tuple - 1 scalar byte }
+        IF_T1S16,               { disp8 - tuple - 1 scalar word }
         IF_T1F32,
         IF_T1F64,
         IF_TMDDUP,
@@ -963,7 +965,8 @@ implementation
            while (localsize>0) do
             begin
 {$ifndef i8086}
-              if CPUX86_HAS_CMOV in cpu_capabilities[current_settings.cputype] then
+              if (CPUX86_HAS_CMOV in cpu_capabilities[current_settings.cputype])
+                 {$ifdef i386} and not (target_info.system in systems_i386_no_cmov_align) {$endif} then
                 begin
                   for j:=low(alignarray_cmovcpus) to high(alignarray_cmovcpus) do
                    if (localsize>=length(alignarray_cmovcpus[j])) then
@@ -2127,6 +2130,8 @@ implementation
                       else tuplesize := 4;
               end;
             end
+            else if IF_T1S8 in aInsEntry^.Flags then tuplesize := 1
+            else if IF_T1S16 in aInsEntry^.Flags then tuplesize := 2
             else if IF_T1F32 in aInsEntry^.Flags then tuplesize := 4
             else if IF_T1F64 in aInsEntry^.Flags then tuplesize := 8
             else if IF_T2 in aInsEntry^.Flags then
@@ -2148,7 +2153,7 @@ implementation
               case aIsEVEXW1 of
                 false: if aIsVector512 then tuplesize := 32;
                 else
-                  Internalerror(2019081003);
+                  Internalerror(2019081013);
               end;
             end
             else if IF_THVM in aInsEntry^.Flags then
@@ -2182,12 +2187,15 @@ implementation
           begin
             if aInput.typ = top_ref then
             begin
-              if (aInput.ref^.offset <> 0) and
-                 ((aInput.ref^.offset mod tuplesize) = 0) and
-                 (abs(aInput.ref^.offset) div tuplesize <= 127) then
-              begin
-                aInput.ref^.offset := aInput.ref^.offset div tuplesize;
-                EVEXTupleState := etsIsTuple;
+	      if aInput.ref^.base <> NR_NO then
+	      begin	      
+	        if (aInput.ref^.offset <> 0) and
+                   ((aInput.ref^.offset mod tuplesize) = 0) and
+                   (abs(aInput.ref^.offset) div tuplesize <= 127) then
+                begin
+                  aInput.ref^.offset := aInput.ref^.offset div tuplesize;
+                  EVEXTupleState := etsIsTuple;
+    	        end;  
               end;
             end;
           end;
@@ -2823,7 +2831,7 @@ implementation
         if ((input.ref^.index<>NR_NO) and (getregtype(input.ref^.index)=R_MMREGISTER) and (input.ref^.base<>NR_NO) and (getregtype(input.ref^.base)<>R_INTREGISTER)) or // vector memory (AVX2)
            ((input.ref^.index<>NR_NO) and (getregtype(input.ref^.index)<>R_INTREGISTER) and (getregtype(input.ref^.index)<>R_MMREGISTER)) or
            ((input.ref^.base<>NR_NO) and (getregtype(input.ref^.base)<>R_INTREGISTER)) then
-         internalerror(200301081);
+         internalerror(2003010802);
 
 
         ir:=input.ref^.index;
@@ -2997,7 +3005,7 @@ implementation
         result:=false;
         if ((input.ref^.index<>NR_NO) and (getregtype(input.ref^.index)<>R_INTREGISTER)) or
            ((input.ref^.base<>NR_NO) and (getregtype(input.ref^.base)<>R_INTREGISTER)) then
-          internalerror(200301081);
+          internalerror(2003010803);
 
 
         ir:=input.ref^.index;
@@ -3864,7 +3872,7 @@ implementation
                                  end;
                                end;
                       else
-                        Internalerror(2019081004);
+                        Internalerror(2019081014);
                     end;
 
 
@@ -4325,7 +4333,7 @@ implementation
                 else
                  objdata_writereloc(currval-insend,2,nil,currabsreloc)
 {$else i8086}
-                InternalError(777006);
+                InternalError(2020100821);
 {$endif i8086}
               end;
             &64,&65,&66 :  // 064..066 - select between 16/32 address mode, but we support only 32 (only 16 on i8086)
@@ -4482,7 +4490,7 @@ implementation
                 else
                   InternalError(2015041503);
 {$else i8086}
-                InternalError(777006);
+                InternalError(2020100822);
 {$endif i8086}
               end;
             else
@@ -4794,10 +4802,10 @@ implementation
                 R_SUBMMX:
                   result:=taicpu.op_ref_reg(A_MOVDQA,S_NO,tmpref,r);
                 else
-                  internalerror(200506043);
+                  internalerror(2005060405);
               end;
           else
-            internalerror(200401041);
+            internalerror(2004010411);
         end;
       end;
 
@@ -4852,10 +4860,10 @@ implementation
                 R_SUBMMWHOLE:
                   result:=taicpu.op_reg_ref(A_MOVQ,S_NO,r,tmpref);
                 else
-                  internalerror(200506042);
+                  internalerror(2005060404);
               end;
           else
-            internalerror(200401041);
+            internalerror(2004010412);
         end;
       end;
 
@@ -5165,7 +5173,7 @@ implementation
                                  msiYMem64: RegYMMSizeMask := RegYMMSizeMask or OT_BITS256;
                                  msiZMem32,
                                  msiZMem64: RegYMMSizeMask := RegYMMSizeMask or OT_BITS512;
-                                       else InternalError(777211);
+                                       else InternalError(2020100823);
                                end;
                     OT_ZMMREG: case MRefInfo of
                                  msiXMem32,
@@ -5174,7 +5182,7 @@ implementation
                                  msiYMem64: RegZMMSizeMask := RegZMMSizeMask or OT_BITS256;
                                  msiZMem32,
                                  msiZMem64: RegZMMSizeMask := RegZMMSizeMask or OT_BITS512;
-                                       else InternalError(777211);
+                                       else InternalError(2020100824);
                                end;
 
                           //else InternalError(777209);

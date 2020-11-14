@@ -656,7 +656,8 @@ type
     po_ExtConstWithoutExpr,  // allow typed const without expression in external class and with external modifier
     po_StopOnUnitInterface,  // parse only a unit name and stop at interface keyword
     po_IgnoreUnknownResource,// Ignore resources for which no handler is registered.
-    po_AsyncProcs            // allow async procedure modifier
+    po_AsyncProcs,            // allow async procedure modifier
+    po_DisableResources      // Disable resources altogether
     );
   TPOptions = set of TPOption;
 
@@ -702,6 +703,7 @@ type
     FAllowedModeSwitches: TModeSwitches;
     FAllowedValueSwitches: TValueSwitches;
     FConditionEval: TCondDirectiveEvaluator;
+    FCurModulename: string;
     FCurrentBoolSwitches: TBoolSwitches;
     FCurrentModeSwitches: TModeSwitches;
     FCurrentValueSwitches: TValueSwitchArray;
@@ -863,6 +865,7 @@ type
     property Files: TStrings read FFiles;
     property CurSourceFile: TLineReader read FCurSourceFile;
     property CurFilename: string read FCurFilename;
+    property CurModuleName: string read FCurModulename Write FCurModuleName;
     property CurLine: string read FCurLine;
     property CurRow: Integer read FCurRow;
     property CurColumn: Integer read GetCurColumn;
@@ -3424,6 +3427,12 @@ begin
     if p=StartP then
       Error(nWarnIllegalCompilerDirectiveX,sWarnIllegalCompilerDirectiveX,['optimization']);
     OptName:=copy(Param,StartP,p-StartP);
+    if lowercase(LeftStr(OptName,2))='no' then
+      begin
+      Delete(OptName,1,2);
+      DoHandleOptimization(OptName,'-');
+      exit;
+      end;
     // skip whitespace
     while (p<=l) and (Param[p] in [' ',#9,#10,#13]) do
       inc(p);
@@ -4081,7 +4090,8 @@ begin
       'POINTERMATH':
         DoBoolDirective(bsPointerMath);
       'R' :
-        HandleResource(Param);
+        if not (po_DisableResources in Options) then
+          HandleResource(Param);
       'RANGECHECKS':
         DoBoolDirective(bsRangeChecks);
       'SCOPEDENUMS':
@@ -4188,12 +4198,15 @@ begin
 end;
 
 function TPascalScanner.DoFetchToken: TToken;
+
 var
   TokenStart: {$ifdef UsePChar}PChar{$else}integer{$endif};
   i: TToken;
   SectionLength, NestingLevel, Index: Integer;
   {$ifdef UsePChar}
   OldLength: integer;
+  Ch: Char;
+  LE: string[2];
   {$else}
   s: string;
   l: integer;
@@ -4324,10 +4337,18 @@ begin
     '(':
       begin
       Inc(FTokenPos);
-      if {$ifdef UsePChar}FTokenPos[0] <> '*'{$else}(FTokenPos>l) or (s[FTokenPos]<>'*'){$endif} then
+      if {$ifdef UsePChar}FTokenPos[0] = '.'{$else}(FTokenPos<=l) and (s[FTokenPos]='.'){$endif} then
+        begin
+        Inc(FTokenPos);
+        Result := tkSquaredBraceOpen;
+        end
+      else if {$ifdef UsePChar}FTokenPos[0] <> '*'{$else}(FTokenPos>l) or (s[FTokenPos]<>'*'){$endif} then
         Result := tkBraceOpen
       else
         begin
+        {$ifdef UsePChar}
+        LE:=LineEnding;
+        {$endif}
         // Old-style multi-line comment
         Inc(FTokenPos);
         TokenStart := FTokenPos;
@@ -4341,13 +4362,17 @@ begin
             begin
             SectionLength:=FTokenPos - TokenStart;
             {$ifdef UsePChar}
-            SetLength(FCurTokenString, OldLength + SectionLength+1); // +1 for #10
+            SetLength(FCurTokenString, OldLength + SectionLength + length(LineEnding)); // Corrected JC
             if SectionLength > 0 then
-              Move(TokenStart^, FCurTokenString[OldLength + 1], SectionLength);
-            Inc(OldLength, SectionLength+1);
-            FCurTokenString[OldLength] := #10;
+              Move(TokenStart^, FCurTokenString[OldLength + 1],SectionLength);
+            Inc(OldLength, SectionLength);
+            for Ch in LE do
+              begin
+              Inc(OldLength);
+              FCurTokenString[OldLength] := Ch;
+              end;
             {$else}
-            FCurTokenString:=FCurTokenString+copy(FCurLine,TokenStart,SectionLength)+#10;
+            FCurTokenString:=FCurTokenString+copy(FCurLine,TokenStart,SectionLength)+LineEnding; // Corrected JC
             {$endif}
             if not FetchLocalLine then
               begin
@@ -4448,7 +4473,12 @@ begin
     '.':
       begin
       Inc(FTokenPos);
-      if {$ifdef UsePChar}FTokenPos[0]='.'{$else}(FTokenPos<=l) and (s[FTokenPos]='.'){$endif} then
+      if {$ifdef UsePChar}FTokenPos[0]=')'{$else}(FTokenPos<=l) and (s[FTokenPos]=')'){$endif} then
+        begin
+        Inc(FTokenPos);
+        Result := tkSquaredBraceClose;
+        end
+      else if {$ifdef UsePChar}FTokenPos[0]='.'{$else}(FTokenPos<=l) and (s[FTokenPos]='.'){$endif} then
         begin
         Inc(FTokenPos);
         Result := tkDotDot;
@@ -4492,14 +4522,14 @@ begin
       end;
     '0'..'9':
       begin
-      // 1, 12, 1.2, 1.2E3, 1.E2, 1E2, 1.2E-3, 1E+2
+      // 1, 12, 1.2, 1.2E3, 1.E2, 1E2, 1.2E-3, 1E+2 and .)
       // beware of 1..2
       TokenStart := FTokenPos;
       repeat
         Inc(FTokenPos);
       until {$ifdef UsePChar}not (FTokenPos[0] in Digits){$else}(FTokenPos>l) or not (s[FTokenPos] in Digits){$endif};
-      if {$ifdef UsePChar}(FTokenPos[0]='.') and (FTokenPos[1]<>'.'){$else}
-          (FTokenPos<=l) and (s[FTokenPos]='.') and ((FTokenPos=l) or (s[FTokenPos+1]<>'.')){$endif}then
+      if {$ifdef UsePChar}(FTokenPos[0]='.') and (FTokenPos[1]<>'.') and (FTokenPos[1]<>')'){$else}
+          (FTokenPos<=l) and (s[FTokenPos]='.') and ((FTokenPos=l) or ((s[FTokenPos+1]<>'.') and (s[FTokenPos+1]<>')'))){$endif}then
         begin
         inc(FTokenPos);
         while {$ifdef UsePChar}FTokenPos[0] in Digits{$else}(FTokenPos<=l) and (s[FTokenPos] in Digits){$endif} do
@@ -4638,6 +4668,7 @@ begin
       TokenStart := FTokenPos;
       FCurTokenString := '';
       {$ifdef UsePChar}
+      LE:=LineEnding;
       OldLength := 0;
       {$endif}
       NestingLevel := 0;
@@ -4646,13 +4677,19 @@ begin
           begin
           SectionLength := FTokenPos - TokenStart;
           {$ifdef UsePChar}
-          SetLength(FCurTokenString, OldLength + SectionLength+1); // +1 for the #10
+          SetLength(FCurTokenString, OldLength + SectionLength + length(LineEnding)); // Corrected JC
           if SectionLength > 0 then
             Move(TokenStart^, FCurTokenString[OldLength + 1],SectionLength);
-          Inc(OldLength, SectionLength+1);
-          FCurTokenString[OldLength] := #10;
+
+          // Corrected JC: Append the correct lineending
+          Inc(OldLength, SectionLength);
+          for Ch in LE do
+            begin
+              Inc(OldLength);
+              FCurTokenString[OldLength] := Ch;
+            end;
           {$else}
-          FCurTokenString:=FCurTokenString+copy(FCurLine,TokenStart,SectionLength)+#10;
+          FCurTokenString:=FCurTokenString+copy(FCurLine,TokenStart,SectionLength)+LineEnding; // Corrected JC
           {$endif}
           if not FetchLocalLine then
           begin

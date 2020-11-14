@@ -27,7 +27,7 @@ type
     Procedure TestGen_ClassEmpty;
     Procedure TestGen_Class_EmptyMethod;
     Procedure TestGen_Class_TList;
-    Procedure TestGen_Class_TCustomList;
+    Procedure TestGen_Class_TCustomList; // ToDo: with Self do Result:=Method()
     Procedure TestGen_ClassAncestor;
     Procedure TestGen_Class_TypeInfo;
     Procedure TestGen_Class_TypeOverload; // ToDo TBird, TBird<T>, TBird<S,T>
@@ -37,12 +37,13 @@ type
     Procedure TestGen_Class_ClassConstructor;
     Procedure TestGen_Class_TypeCastSpecializesWarn;
     Procedure TestGen_Class_TypeCastSpecializesJSValueNoWarn;
-    procedure TestGen_Class_VarArgsOfType;
     procedure TestGen_Class_OverloadsInUnit;
     procedure TestGen_ClassForward_CircleRTTI;
+    procedure TestGen_Class_Nested_RTTI;
     Procedure TestGen_Class_ClassVarRecord_UnitImpl;
 
     // generic external class
+    procedure TestGen_ExtClass_VarArgsOfType;
     procedure TestGen_ExtClass_Array;
     procedure TestGen_ExtClass_GenJSValueAssign;
     procedure TestGen_ExtClass_AliasMemberType;
@@ -52,6 +53,8 @@ type
     // class interfaces
     procedure TestGen_ClassInterface_Corba;
     procedure TestGen_ClassInterface_InterfacedObject;
+    procedure TestGen_ClassInterface_COM_RTTI;
+    procedure TestGen_ClassInterface_Helper;
 
     // statements
     Procedure TestGen_InlineSpec_Constructor;
@@ -77,6 +80,7 @@ type
     procedure TestGenMethod_ObjFPC;
 
     // generic array
+    procedure TestGen_Array_OtherUnit;
     procedure TestGen_ArrayOfUnitImplRec;
 
     // generic procedure type
@@ -102,7 +106,7 @@ begin
   ConvertProgram;
   CheckSource('TestGen_RecordEmpty',
     LinesToStr([ // statements
-    'rtl.recNewT($mod, "TRecA$G1", function () {',
+    'rtl.recNewT(this, "TRecA$G1", function () {',
     '  this.$eq = function (b) {',
     '    return true;',
     '  };',
@@ -110,8 +114,8 @@ begin
     '    return this;',
     '  };',
     '});',
-    'this.a = $mod.TRecA$G1.$new();',
-    'this.b = $mod.TRecA$G1.$new();',
+    'this.a = this.TRecA$G1.$new();',
+    'this.b = this.TRecA$G1.$new();',
     '']),
     LinesToStr([ // $mod.$main
     'if ($mod.a.$eq($mod.b)) ;'
@@ -144,7 +148,7 @@ begin
   ConvertProgram;
   CheckSource('TestGen_Record_ClassProc',
     LinesToStr([ // statements
-    'rtl.recNewT($mod, "TPoint$G1", function () {',
+    'rtl.recNewT(this, "TPoint$G1", function () {',
     '  this.x = 0;',
     '  this.$eq = function (b) {',
     '    return true;',
@@ -159,7 +163,7 @@ begin
     '    $mod.TPoint$G1.Fly();',
     '  };',
     '}, true);',
-    'this.p = $mod.TPoint$G1.$new();',
+    'this.p = this.TPoint$G1.$new();',
     '']),
     LinesToStr([ // $mod.$main
     '$mod.TPoint$G1.x = $mod.p.x + 10;',
@@ -187,7 +191,7 @@ begin
   ConvertProgram;
   CheckSource('TestGen_Record_ClassVarRecord_Program',
     LinesToStr([ // statements
-    'rtl.recNewT($mod, "TBird", function () {',
+    'rtl.recNewT(this, "TBird", function () {',
     '  this.b = 0;',
     '  this.$eq = function (b) {',
     '    return this.b === b.b;',
@@ -197,7 +201,7 @@ begin
     '    return this;',
     '  };',
     '});',
-    'rtl.recNewT($mod, "TAnt$G1", function () {',
+    'rtl.recNewT(this, "TAnt$G1", function () {',
     '  this.x = $mod.TBird.$new();',
     '  this.$eq = function (b) {',
     '    return true;',
@@ -206,7 +210,7 @@ begin
     '    return this;',
     '  };',
     '}, true);',
-    'this.f = $mod.TAnt$G1.$new();',
+    'this.f = this.TAnt$G1.$new();',
     '']),
     LinesToStr([ // $mod.$main
     '$mod.f.x.b = $mod.f.x.b + 10;',
@@ -244,7 +248,7 @@ begin
     'rtl.module("UnitA", ["system"], function () {',
     '  var $mod = this;',
     '  var $impl = $mod.$impl;',
-    '  rtl.recNewT($mod, "TAnt$G1", function () {',
+    '  rtl.recNewT(this, "TAnt$G1", function () {',
     '    this.$initSpec = function () {',
     '      this.x = $impl.TBird.$new();',
     '      this.a = rtl.arraySetLength(null, $impl.TBird, 2);',
@@ -307,7 +311,7 @@ begin
   CheckSource('TestGen_Record_RTTI_UnitImpl',
     LinesToStr([ // statements
     'var $impl = $mod.$impl;',
-    'rtl.recNewT($mod, "TAnt$G1", function () {',
+    'rtl.recNewT(this, "TAnt$G1", function () {',
     '  var $r = $mod.$rtti.$Record("TAnt<Test1.TBird>", {});',
     '  this.$initSpec = function () {',
     '    this.x = $impl.TBird.$new();',
@@ -356,14 +360,14 @@ begin
   ConvertProgram;
   CheckSource('TestGen_ClassEmpty',
     LinesToStr([ // statements
-    'rtl.createClass($mod, "TObject", null, function () {',
+    'rtl.createClass(this, "TObject", null, function () {',
     '  this.$init = function () {',
     '  };',
     '  this.$final = function () {',
     '  };',
     '});',
-    'rtl.createClass($mod, "TBird$G1", $mod.TObject, function () {',
-    '});',
+    'rtl.createClass(this, "TBird$G1", this.TObject, function () {',
+    '}, "TBird<System.Word>");',
     'this.a = null;',
     'this.b = null;',
     '']),
@@ -390,18 +394,18 @@ begin
   ConvertProgram;
   CheckSource('TestGen_Class_EmptyMethod',
     LinesToStr([ // statements
-    'rtl.createClass($mod, "TObject", null, function () {',
+    'rtl.createClass(this, "TObject", null, function () {',
     '  this.$init = function () {',
     '  };',
     '  this.$final = function () {',
     '  };',
     '});',
-    'rtl.createClass($mod, "TBird$G1", $mod.TObject, function () {',
+    'rtl.createClass(this, "TBird$G1", this.TObject, function () {',
     '  this.Fly = function (w) {',
     '    var Result = 0;',
     '    return Result;',
     '  };',
-    '});',
+    '}, "TBird<System.Word>");',
     'this.a = null;',
     '']),
     LinesToStr([ // $mod.$main
@@ -449,13 +453,13 @@ begin
   ConvertProgram;
   CheckSource('TestGen_Class_TList',
     LinesToStr([ // statements
-    'rtl.createClass($mod, "TObject", null, function () {',
+    'rtl.createClass(this, "TObject", null, function () {',
     '  this.$init = function () {',
     '  };',
     '  this.$final = function () {',
     '  };',
     '});',
-    'rtl.createClass($mod, "TList$G1", $mod.TObject, function () {',
+    'rtl.createClass(this, "TList$G1", this.TObject, function () {',
     '  this.$init = function () {',
     '    $mod.TObject.$init.call(this);',
     '    this.FItems = [];',
@@ -477,7 +481,7 @@ begin
     '    this.FItems.splice(2, 0, w);',
     '    this.FItems.splice(2, 3);',
     '  };',
-    '});',
+    '}, "TList<System.Word>");',
     'this.l = null;',
     'this.w = 0;',
     '']),
@@ -509,7 +513,7 @@ begin
   'function TList<T>.Add: word;',
   'begin',
   '  Result:=PrepareAddingItem;',
-  //'  Result:=Self.PrepareAddingItem;',
+  '  Result:=Self.PrepareAddingItem;',
   //'  with Self do Result:=PrepareAddingItem;',
   'end;',
   'var l: TWordList;',
@@ -518,25 +522,26 @@ begin
   ConvertProgram;
   CheckSource('TestGen_Class_TCustomList',
     LinesToStr([ // statements
-    'rtl.createClass($mod, "TObject", null, function () {',
+    'rtl.createClass(this, "TObject", null, function () {',
     '  this.$init = function () {',
     '  };',
     '  this.$final = function () {',
     '  };',
     '});',
-    'rtl.createClass($mod, "TCustomList$G2", $mod.TObject, function () {',
+    'rtl.createClass(this, "TCustomList$G2", this.TObject, function () {',
     '  this.PrepareAddingItem = function () {',
     '    var Result = 0;',
     '    return Result;',
     '  };',
-    '});',
-    'rtl.createClass($mod, "TList$G1", $mod.TCustomList$G2, function () {',
+    '}, "TCustomList<System.Word>");',
+    'rtl.createClass(this, "TList$G1", this.TCustomList$G2, function () {',
     '  this.Add = function () {',
     '    var Result = 0;',
     '    Result = this.PrepareAddingItem();',
+    '    Result = this.PrepareAddingItem();',
     '    return Result;',
     '  };',
-    '});',
+    '}, "TList<System.Word>");',
     'this.l = null;',
     '']),
     LinesToStr([ // $mod.$main
@@ -559,16 +564,16 @@ begin
   ConvertProgram;
   CheckSource('TestGen_ClassAncestor',
     LinesToStr([ // statements
-    'rtl.createClass($mod, "TObject", null, function () {',
+    'rtl.createClass(this, "TObject", null, function () {',
     '  this.$init = function () {',
     '  };',
     '  this.$final = function () {',
     '  };',
     '});',
-    'rtl.createClass($mod, "TBird$G2", $mod.TObject, function () {',
-    '});',
-    'rtl.createClass($mod, "TEagle$G1", $mod.TBird$G2, function () {',
-    '});',
+    'rtl.createClass(this, "TBird$G2", this.TObject, function () {',
+    '}, "TBird<System.Word>");',
+    'rtl.createClass(this, "TEagle$G1", this.TBird$G2, function () {',
+    '}, "TEagle<System.Word>");',
     'this.a = null;',
     '']),
     LinesToStr([ // $mod.$main
@@ -598,13 +603,13 @@ begin
   CheckSource('TestGen_Class_TypeInfo',
     LinesToStr([ // statements
     '$mod.$rtti.$Class("TBird<System.Word>");',
-    'rtl.createClass($mod, "TObject", null, function () {',
+    'rtl.createClass(this, "TObject", null, function () {',
     '  this.$init = function () {',
     '  };',
     '  this.$final = function () {',
     '  };',
     '});',
-    'rtl.createClass($mod, "TBird$G1", $mod.TObject, function () {',
+    'rtl.createClass(this, "TBird$G1", this.TObject, function () {',
     '  this.$init = function () {',
     '    $mod.TObject.$init.call(this);',
     '    this.m = 0;',
@@ -643,7 +648,7 @@ begin
   ConvertProgram;
   CheckSource('TestGen_Class_TypeOverload',
     LinesToStr([ // statements
-    'rtl.createClass($mod, "TObject", null, function () {',
+    'rtl.createClass(this, "TObject", null, function () {',
     '  this.$init = function () {',
     '  };',
     '  this.$final = function () {',
@@ -674,15 +679,15 @@ begin
   ConvertProgram;
   CheckSource('TestGen_Class_ClassProperty',
     LinesToStr([ // statements
-    'rtl.createClass($mod, "TObject", null, function () {',
+    'rtl.createClass(this, "TObject", null, function () {',
     '  this.$init = function () {',
     '  };',
     '  this.$final = function () {',
     '  };',
     '});',
-    'rtl.createClass($mod, "TBird$G1", $mod.TObject, function () {',
+    'rtl.createClass(this, "TBird$G1", this.TObject, function () {',
     '  this.fSize = 0;',
-    '});',
+    '}, "TBird<System.Word>");',
     '']),
     LinesToStr([ // $mod.$main
     '$mod.TBird$G1.fSize = 3 + $mod.TBird$G1.fSize;',
@@ -724,13 +729,13 @@ begin
   ConvertProgram;
   CheckSource('TestGen_Class_ClassProc',
     LinesToStr([ // statements
-    'rtl.createClass($mod, "TObject", null, function () {',
+    'rtl.createClass(this, "TObject", null, function () {',
     '  this.$init = function () {',
     '  };',
     '  this.$final = function () {',
     '  };',
     '});',
-    'rtl.createClass($mod, "TPoint$G1", $mod.TObject, function () {',
+    'rtl.createClass(this, "TPoint$G1", this.TObject, function () {',
     '  this.x = 0;',
     '  this.Fly = function () {',
     '    $mod.TPoint$G1.x = $mod.TPoint$G1.x + 3;',
@@ -748,7 +753,7 @@ begin
     '    this.Run();',
     '    $mod.TPoint$G1.Run();',
     '  };',
-    '});',
+    '}, "TPoint<System.Word>");',
     'this.p = null;',
     '']),
     LinesToStr([ // $mod.$main
@@ -787,24 +792,24 @@ begin
   ConvertProgram;
   CheckSource('TestGen_Class_ClassConstructor',
     LinesToStr([ // statements
-    'rtl.createClass($mod, "TObject", null, function () {',
+    'rtl.createClass(this, "TObject", null, function () {',
     '  this.$init = function () {',
     '  };',
     '  this.$final = function () {',
     '  };',
     '});',
     'this.count = 0;',
-    'rtl.createClass($mod, "TPoint$G1", $mod.TObject, function () {',
+    'rtl.createClass(this, "TPoint$G1", this.TObject, function () {',
     '  this.x = 0;',
     '  this.Fly = function () {',
     '  };',
-    '});',
+    '}, "TPoint<System.Word>");',
     'this.r = null;',
-    'rtl.createClass($mod, "TPoint$G2", $mod.TObject, function () {',
+    'rtl.createClass(this, "TPoint$G2", this.TObject, function () {',
     '  this.x = 0;',
     '  this.Fly = function () {',
     '  };',
-    '});',
+    '}, "TPoint<System.SmallInt>");',
     'this.s = null;',
     '']),
     LinesToStr([ // $mod.$main
@@ -845,24 +850,24 @@ begin
   ConvertProgram;
   CheckSource('TestGen_Class_TypeCastSpecializesWarn',
     LinesToStr([ // statements
-    'rtl.createClass($mod, "TObject", null, function () {',
+    'rtl.createClass(this, "TObject", null, function () {',
     '  this.$init = function () {',
     '  };',
     '  this.$final = function () {',
     '  };',
     '});',
-    'rtl.createClass($mod, "TBird$G1", $mod.TObject, function () {',
+    'rtl.createClass(this, "TBird$G1", this.TObject, function () {',
     '  this.$init = function () {',
     '    $mod.TObject.$init.call(this);',
     '    this.F = 0;',
     '  };',
-    '});',
-    'rtl.createClass($mod, "TBird$G2", $mod.TObject, function () {',
+    '}, "TBird<System.Word>");',
+    'rtl.createClass(this, "TBird$G2", this.TObject, function () {',
     '  this.$init = function () {',
     '    $mod.TObject.$init.call(this);',
     '    this.F = "";',
     '  };',
-    '});',
+    '}, "TBird<System.Char>");',
     'this.w = null;',
     'this.c = null;',
     '']),
@@ -893,24 +898,24 @@ begin
   ConvertProgram;
   CheckSource('TestGen_Class_TypeCastSpecializesJSValueNoWarn',
     LinesToStr([ // statements
-    'rtl.createClass($mod, "TObject", null, function () {',
+    'rtl.createClass(this, "TObject", null, function () {',
     '  this.$init = function () {',
     '  };',
     '  this.$final = function () {',
     '  };',
     '});',
-    'rtl.createClass($mod, "TBird$G1", $mod.TObject, function () {',
+    'rtl.createClass(this, "TBird$G1", this.TObject, function () {',
     '  this.$init = function () {',
     '    $mod.TObject.$init.call(this);',
     '    this.F = 0;',
     '  };',
-    '});',
-    'rtl.createClass($mod, "TBird$G2", $mod.TObject, function () {',
+    '}, "TBird<System.Word>");',
+    'rtl.createClass(this, "TBird$G2", this.TObject, function () {',
     '  this.$init = function () {',
     '    $mod.TObject.$init.call(this);',
     '    this.F = undefined;',
     '  };',
-    '});',
+    '}, "TBird<System.JSValue>");',
     'this.w = null;',
     'this.a = null;',
     '']),
@@ -919,45 +924,6 @@ begin
     '$mod.a = $mod.w;',
     '']));
   CheckResolverUnexpectedHints();
-end;
-
-procedure TTestGenerics.TestGen_Class_VarArgsOfType;
-begin
-  StartProgram(false);
-  Add([
-  '{$mode objfpc}',
-  '{$modeswitch externalclass}',
-  'type',
-  '  TJSObject = class external name ''Object''',
-  '  end;',
-  '  generic TGJSSet<T> = class external name ''Set''',
-  '    constructor new(aElement1: T); varargs of T; overload;',
-  '    function bind(thisArg: TJSObject): T; varargs of T;',
-  '  end;',
-  '  TJSWordSet = specialize TGJSSet<word>;',
-  'var',
-  '  s: TJSWordSet;',
-  '  w: word;',
-  'begin',
-  '  s:=TJSWordSet.new(3);',
-  '  s:=TJSWordSet.new(3,5);',
-  '  w:=s.bind(nil);',
-  '  w:=s.bind(nil,6);',
-  '  w:=s.bind(nil,7,8);',
-  '']);
-  ConvertProgram;
-  CheckSource('TestGen_Class_VarArgsOfType',
-    LinesToStr([ // statements
-    'this.s = null;',
-    'this.w = 0;',
-    '']),
-    LinesToStr([ // $mod.$main
-    '$mod.s = new Set(3);',
-    '$mod.s = new Set(3, 5);',
-    '$mod.w = $mod.s.bind(null);',
-    '$mod.w = $mod.s.bind(null, 6);',
-    '$mod.w = $mod.s.bind(null, 7, 8);',
-    '']));
 end;
 
 procedure TTestGenerics.TestGen_Class_OverloadsInUnit;
@@ -1001,7 +967,7 @@ begin
     LinesToStr([ // statements
     'rtl.module("UnitA", ["system"], function () {',
     '  var $mod = this;',
-    '  rtl.createClass($mod, "TBird$G1", pas.system.TObject, function () {',
+    '  rtl.createClass(this, "TBird$G1", pas.system.TObject, function () {',
     '    this.c = 13;',
     '    var c$1 = 14;',
     '    this.Create$1 = function (w) {',
@@ -1011,8 +977,8 @@ begin
     '    this.Create$2 = function (b) {',
     '      return this;',
     '    };',
-    '  });',
-    '  rtl.createClass($mod, "TBird$G2", pas.system.TObject, function () {',
+    '  }, "TBird<System.Word>");',
+    '  rtl.createClass(this, "TBird$G2", pas.system.TObject, function () {',
     '    this.c = 13;',
     '    var c$1 = 14;',
     '    this.Create$1 = function (w) {',
@@ -1022,7 +988,7 @@ begin
     '    this.Create$2 = function (b) {',
     '      return this;',
     '    };',
-    '  });',
+    '  }, "TBird<System.Double>");',
     '});',
     '']));
   CheckSource('TestGen_Class_OverloadsInUnit',
@@ -1072,15 +1038,15 @@ begin
     LinesToStr([ // statements
     '$mod.$rtti.$Class("TAnt<System.Word>");',
     '$mod.$rtti.$Class("TFish<System.Word>");',
-    'rtl.createClass($mod, "TObject", null, function () {',
+    'rtl.createClass(this, "TObject", null, function () {',
     '  this.$init = function () {',
     '  };',
     '  this.$final = function () {',
     '  };',
     '});',
-    'rtl.createClass($mod, "TPersistent", $mod.TObject, function () {',
+    'rtl.createClass(this, "TPersistent", this.TObject, function () {',
     '});',
-    'rtl.createClass($mod, "TAnt$G2", $mod.TPersistent, function () {',
+    'rtl.createClass(this, "TAnt$G2", this.TPersistent, function () {',
     '  this.$init = function () {',
     '    $mod.TPersistent.$init.call(this);',
     '    this.f = null;',
@@ -1092,7 +1058,7 @@ begin
     '  var $r = this.$rtti;',
     '  $r.addField("f", $mod.$rtti["TFish<System.Word>"]);',
     '}, "TAnt<System.Word>");',
-    'rtl.createClass($mod, "TFish$G2", $mod.TPersistent, function () {',
+    'rtl.createClass(this, "TFish$G2", this.TPersistent, function () {',
     '  this.$init = function () {',
     '    $mod.TPersistent.$init.call(this);',
     '    this.a = null;',
@@ -1110,6 +1076,57 @@ begin
     LinesToStr([ // $mod.$main
     '$mod.p = $mod.$rtti["TAnt<System.Word>"];',
     '$mod.p = $mod.$rtti["TFish<System.Word>"];',
+    '']));
+end;
+
+procedure TTestGenerics.TestGen_Class_Nested_RTTI;
+begin
+  WithTypeInfo:=true;
+  StartProgram(true,[supTObject]);
+  AddModuleWithIntfImplSrc('UnitA.pas',
+  LinesToStr([
+  'type',
+  '  generic TAnt<T> = class',
+  '  type',
+  '    TLeg = class',
+  '    published',
+  '      Size: T;',
+  '    end;',
+  '  end;',
+  '  TBoolAnt = specialize TAnt<boolean>;',
+  '']),
+  LinesToStr([
+  '']));
+  Add([
+  'uses UnitA;',
+  'var',
+  '  BoolLeg: TBoolAnt.TLeg;',
+  'begin',
+  '  if typeinfo(TBoolAnt.TLeg)=nil then ;',
+  '']);
+  ConvertProgram;
+  CheckUnit('UnitA.pas',
+    LinesToStr([ // statements
+    'rtl.module("UnitA", ["system"], function () {',
+    '  var $mod = this;',
+    '  $mod.$rtti.$Class("TAnt<System.Boolean>");',
+    '  rtl.createClass(this, "TAnt$G1", pas.system.TObject, function () {',
+    '    rtl.createClass(this, "TLeg", pas.system.TObject, function () {',
+    '      this.$init = function () {',
+    '        pas.system.TObject.$init.call(this);',
+    '        this.Size = false;',
+    '      };',
+    '      var $r = this.$rtti;',
+    '      $r.addField("Size", rtl.boolean);',
+    '    }, "TAnt<System.Boolean>.TLeg");',
+    '  }, "TAnt<System.Boolean>");',
+    '});']));
+  CheckSource('TestGen_Class_Nested_RTTI',
+    LinesToStr([ // statements
+    'this.BoolLeg = null;',
+    '']),
+    LinesToStr([ // $mod.$main
+    'if (pas.UnitA.$rtti["TAnt<System.Boolean>.TLeg"] === null) ;',
     '']));
 end;
 
@@ -1144,12 +1161,12 @@ begin
     'rtl.module("UnitA", ["system"], function () {',
     '  var $mod = this;',
     '  var $impl = $mod.$impl;',
-    '  rtl.createClass($mod, "TAnt$G1", pas.system.TObject, function () {',
+    '  rtl.createClass(this, "TAnt$G1", pas.system.TObject, function () {',
     '    this.$initSpec = function () {',
     '      this.x = $impl.TBird.$new();',
     '      this.a = rtl.arraySetLength(null, $impl.TBird, 2);',
     '    };',
-    '  });',
+    '  }, "TAnt<UnitA.TBird>");',
     '  $mod.$implcode = function () {',
     '    rtl.recNewT($impl, "TBird", function () {',
     '      this.b = 0;',
@@ -1166,12 +1183,52 @@ begin
     '  $mod.$init = function () {',
     '    $impl.f.x.b = $impl.f.x.b + 10;',
     '  };',
-    '}, []);']));
+    '}, []);',
+    '']));
   CheckSource('TestGen_Class_ClassVarRecord_UnitImpl',
     LinesToStr([ // statements
     'pas.UnitA.TAnt$G1.$initSpec();',
     '']),
     LinesToStr([ // $mod.$main
+    '']));
+end;
+
+procedure TTestGenerics.TestGen_ExtClass_VarArgsOfType;
+begin
+  StartProgram(false);
+  Add([
+  '{$mode objfpc}',
+  '{$modeswitch externalclass}',
+  'type',
+  '  TJSObject = class external name ''Object''',
+  '  end;',
+  '  generic TGJSSet<T> = class external name ''Set''',
+  '    constructor new(aElement1: T); varargs of T; overload;',
+  '    function bind(thisArg: TJSObject): T; varargs of T;',
+  '  end;',
+  '  TJSWordSet = specialize TGJSSet<word>;',
+  'var',
+  '  s: TJSWordSet;',
+  '  w: word;',
+  'begin',
+  '  s:=TJSWordSet.new(3);',
+  '  s:=TJSWordSet.new(3,5);',
+  '  w:=s.bind(nil);',
+  '  w:=s.bind(nil,6);',
+  '  w:=s.bind(nil,7,8);',
+  '']);
+  ConvertProgram;
+  CheckSource('TestGen_ExtClass_VarArgsOfType',
+    LinesToStr([ // statements
+    'this.s = null;',
+    'this.w = 0;',
+    '']),
+    LinesToStr([ // $mod.$main
+    '$mod.s = new Set(3);',
+    '$mod.s = new Set(3, 5);',
+    '$mod.w = $mod.s.bind(null);',
+    '$mod.w = $mod.s.bind(null, 6);',
+    '$mod.w = $mod.s.bind(null, 7, 8);',
     '']));
 end;
 
@@ -1312,11 +1369,11 @@ begin
   ConvertProgram;
   CheckSource('TestGen_ExtClass_RTTI',
     LinesToStr([ // statements
-    '$mod.$rtti.$ExtClass("TGJSSET<System.JSValue>", {',
+    'this.$rtti.$ExtClass("TGJSSET<System.JSValue>", {',
     '  jsclass: "SET"',
     '});',
-    '$mod.$rtti.$RefToProcVar("TJSSetEventProc", {',
-    '  procsig: rtl.newTIProcSig([["value", rtl.jsvalue], ["key", rtl.nativeint], ["set_", $mod.$rtti["TGJSSET<System.JSValue>"]]])',
+    'this.$rtti.$RefToProcVar("TJSSetEventProc", {',
+    '  procsig: rtl.newTIProcSig([["value", rtl.jsvalue], ["key", rtl.nativeint], ["set_", this.$rtti["TGJSSET<System.JSValue>"]]])',
     '});',
     'this.p = null;',
     '']),
@@ -1358,7 +1415,7 @@ begin
     'rtl.module("UnitA", ["system"], function () {',
     '  var $mod = this;',
     '  var $impl = $mod.$impl;',
-    '  $mod.$rtti.$ExtClass("TAnt<UnitA.TBird>", {',
+    '  this.$rtti.$ExtClass("TAnt<UnitA.TBird>", {',
     '    jsclass: "SET"',
     '  });',
     '  $mod.$implcode = function () {',
@@ -1422,17 +1479,24 @@ begin
   ConvertProgram;
   CheckSource('TestGen_ClassInterface_Corba',
     LinesToStr([ // statements
-    'rtl.createInterface($mod, "IUnknown", "{00000000-0000-0000-C000-000000000046}", [], null);',
-    'rtl.createClass($mod, "TObject", null, function () {',
+    'rtl.createInterface(this, "IUnknown", "{00000000-0000-0000-C000-000000000046}", [], null);',
+    'rtl.createClass(this, "TObject", null, function () {',
     '  this.$init = function () {',
     '  };',
     '  this.$final = function () {',
     '  };',
     '});',
-    'rtl.createInterface($mod, "IBird$G2", "{33AB51C6-6240-3BDF-B4B0-D48A593EAB0A}", ["GetSize", "SetSize", "DoIt"], $mod.IUnknown);',
-    'rtl.createClass($mod, "TBird$G1", $mod.TObject, function () {',
+    'rtl.createInterface(',
+    '  this,',
+    '  "IBird$G2",',
+    '  "{33AB51C6-6240-3BDF-B4B0-D48A593EAB0A}",',
+    '  ["GetSize", "SetSize", "DoIt"],',
+    '  this.IUnknown,',
+    '  "IBird<System.Word>"',
+    ');',
+    'rtl.createClass(this, "TBird$G1", this.TObject, function () {',
     '  rtl.addIntf(this, $mod.IBird$G2);',
-    '});',
+    '}, "TBird<System.Word>");',
     'this.BirdIntf = null;',
     '']),
     LinesToStr([ // $mod.$main
@@ -1461,19 +1525,110 @@ begin
   ConvertProgram;
   CheckSource('TestGen_ClassInterface_InterfacedObject',
     LinesToStr([ // statements
-    'rtl.createInterface($mod, "IComparer$G2", "{505778ED-F783-4456-9691-32F419CC5E18}", ["Compare"], pas.system.IUnknown);',
+    'rtl.createInterface(',
+    '  this,',
+    '  "IComparer$G2",',
+    '  "{505778ED-F783-4456-9691-32F419CC5E18}",',
+    '  ["Compare"],',
+    '  pas.system.IUnknown,',
+    '  "IComparer<System.Longint>"',
+    ');',
     'this.aComparer = null;',
-    'rtl.createClass($mod, "TComparer$G1", pas.system.TInterfacedObject, function () {',
+    'rtl.createClass(this, "TComparer$G1", pas.system.TInterfacedObject, function () {',
     '  this.Compare = function (Left, Right) {',
     '    var Result = 0;',
     '    return Result;',
     '  };',
     '  rtl.addIntf(this, $mod.IComparer$G2);',
     '  rtl.addIntf(this, pas.system.IUnknown);',
-    '});',
+    '}, "TComparer<System.Longint>");',
     '']),
     LinesToStr([ // $mod.$main
     'rtl.setIntfP($mod, "aComparer", rtl.queryIntfT($mod.TComparer$G1.$create("Create"), $mod.IComparer$G2), true);',
+    '']));
+end;
+
+procedure TTestGenerics.TestGen_ClassInterface_COM_RTTI;
+begin
+  StartProgram(true,[supTInterfacedObject]);
+  Add([
+  '{$mode delphi}',
+  'type',
+  '  TBird = class',
+  '    function Fly<T: IInterface>: T;',
+  '  end;',
+  '  IAnt = interface',
+  '    procedure InterfaceProc;',
+  '  end;',
+  'function TBird.Fly<T>: T;',
+  'begin',
+  '  if TypeInfo(T)=nil then ;',
+  'end;',
+  'var Bird: TBird;',
+  '  Ant: IAnt;',
+  'begin',
+  '  Ant := Bird.Fly<IAnt>;',
+  '']);
+  ConvertProgram;
+  CheckSource('TestGen_ClassInterface_COM_RTTI',
+    LinesToStr([ // statements
+    'rtl.createClass(this, "TBird", pas.system.TObject, function () {',
+    '  this.Fly$G1 = function () {',
+    '    var Result = null;',
+    '    if ($mod.$rtti["IAnt"] === null) ;',
+    '    return Result;',
+    '  };',
+    '});',
+    'rtl.createInterface(this, "IAnt", "{B9D0FF27-A446-3A1B-AA85-F167837AA297}", ["InterfaceProc"], pas.system.IUnknown);',
+    'this.Bird = null;',
+    'this.Ant = null;',
+    '']),
+    LinesToStr([ // $mod.$main
+    'rtl.setIntfP($mod, "Ant", $mod.Bird.Fly$G1(), true);',
+    '']));
+end;
+
+procedure TTestGenerics.TestGen_ClassInterface_Helper;
+begin
+  StartProgram(true,[supTInterfacedObject]);
+  Add([
+  '{$mode objfpc}',
+  '{$ModeSwitch typehelpers}',
+  'type',
+  '  IAnt = interface',
+  '    procedure InterfaceProc;',
+  '  end;',
+  '  TBird = type helper for IAnt',
+  '    generic procedure Fly<T>(a: T);',
+  '  end;',
+  'generic procedure TBird.Fly<T>(a: T);',
+  'begin',
+  'end;',
+  'var ',
+  '  Ant: IAnt;',
+  'begin',
+  '  Ant.specialize Fly<word>(3);',
+  '']);
+  ConvertProgram;
+  CheckSource('TestGen_ClassInterface_COM_RTTI',
+    LinesToStr([ // statements
+    'rtl.createInterface(this, "IAnt", "{B9D0FF27-A446-3A1B-AA85-F167837AA297}", ["InterfaceProc"], pas.system.IUnknown);',
+    'rtl.createHelper(this, "TBird", null, function () {',
+    '  this.Fly$G1 = function (a) {',
+    '  };',
+    '});',
+    'this.Ant = null;',
+    '']),
+    LinesToStr([ // $mod.$main
+    '$mod.TBird.Fly$G1.call({',
+    '  p: $mod,',
+    '  get: function () {',
+    '      return this.p.Ant;',
+    '    },',
+    '  set: function (v) {',
+    '      rtl.setIntfP(this.p, "Ant", v);',
+    '    }',
+    '}, 3);',
     '']));
 end;
 
@@ -1497,7 +1652,7 @@ begin
   ConvertProgram;
   CheckSource('TestGen_InlineSpec_Constructor',
     LinesToStr([ // statements
-    'rtl.createClass($mod, "TObject", null, function () {',
+    'rtl.createClass(this, "TObject", null, function () {',
     '  this.$init = function () {',
     '  };',
     '  this.$final = function () {',
@@ -1506,8 +1661,8 @@ begin
     '    return this;',
     '  };',
     '});',
-    'rtl.createClass($mod, "TBird$G1", $mod.TObject, function () {',
-    '});',
+    'rtl.createClass(this, "TBird$G1", this.TObject, function () {',
+    '}, "TBird<System.Word>");',
     'this.b = null;',
     '']),
     LinesToStr([ // $mod.$main
@@ -1546,17 +1701,17 @@ begin
     'rtl.module("UnitA", ["system"], function () {',
     '  var $mod = this;',
     '  var $impl = $mod.$impl;',
-    '  rtl.createClass($mod, "TBird$G1", pas.system.TObject, function () {',
+    '  rtl.createClass(this, "TBird$G1", pas.system.TObject, function () {',
     '    this.Fly = function () {',
     '      $impl.DoIt();',
     '    };',
-    '  });',
+    '  }, "TBird<System.Boolean>");',
     '  this.b = null;',
-    '  rtl.createClass($mod, "TBird$G2", pas.system.TObject, function () {',
+    '  rtl.createClass(this, "TBird$G2", pas.system.TObject, function () {',
     '    this.Fly = function () {',
     '      $impl.DoIt();',
     '    };',
-    '  });',
+    '  }, "TBird<System.Word>");',
     '  $mod.$implcode = function () {',
     '    $impl.DoIt = function () {',
     '      var b = null;',
@@ -1589,13 +1744,13 @@ begin
   ConvertProgram;
   CheckSource('TestGen_IntAssignTemplVar',
     LinesToStr([ // statements
-    'rtl.createClass($mod, "TObject", null, function () {',
+    'rtl.createClass(this, "TObject", null, function () {',
     '  this.$init = function () {',
     '  };',
     '  this.$final = function () {',
     '  };',
     '});',
-    'rtl.createClass($mod, "TBird$G1", $mod.TObject, function () {',
+    'rtl.createClass(this, "TBird$G1", this.TObject, function () {',
     '  this.$init = function () {',
     '    $mod.TObject.$init.call(this);',
     '    this.m = 0;',
@@ -1604,7 +1759,7 @@ begin
     '    var i = 0;',
     '    i = this.m;',
     '  };',
-    '});',
+    '}, "TBird<System.Word>");',
     'this.b = null;',
     '']),
     LinesToStr([ // $mod.$main
@@ -1636,14 +1791,14 @@ begin
   ConvertProgram;
   CheckSource('TestGen_TypeCastDotField',
     LinesToStr([ // statements
-    'rtl.createClass($mod, "TObject", null, function () {',
+    'rtl.createClass(this, "TObject", null, function () {',
     '  this.$init = function () {',
     '  };',
     '  this.$final = function () {',
     '  };',
     '});',
     'this.o = null;',
-    'rtl.createClass($mod, "TBird$G1", $mod.TObject, function () {',
+    'rtl.createClass(this, "TBird$G1", this.TObject, function () {',
     '  this.$init = function () {',
     '    $mod.TObject.$init.call(this);',
     '    this.Field = 0;',
@@ -1652,7 +1807,7 @@ begin
     '    $mod.o.Field = 3;',
     '    if (4 === $mod.o.Field) ;',
     '  };',
-    '});',
+    '}, "TBird<System.Word>");',
     'this.b = null;',
     '']),
     LinesToStr([ // $mod.$main
@@ -1682,7 +1837,7 @@ begin
   ConvertProgram;
   CheckSource('TestGen_HelperForArray',
     LinesToStr([ // statements
-    'rtl.createHelper($mod, "TWordArrHelper", null, function () {',
+    'rtl.createHelper(this, "TWordArrHelper", null, function () {',
     '  this.Fly = function (w) {',
     '  };',
     '});',
@@ -1719,7 +1874,7 @@ begin
   CheckSource('TestGenProc_Function_ObjFPC',
     LinesToStr([ // statements
     'this.w = 0;',
-    'this.Run$s0 = function (a) {',
+    'this.Run$G1 = function (a) {',
     '  var Result = 0;',
     '  var i = 0;',
     '  a = i;',
@@ -1728,7 +1883,7 @@ begin
     '};',
     '']),
     LinesToStr([ // $mod.$main
-    '$mod.w = $mod.Run$s0(3);',
+    '$mod.w = $mod.Run$G1(3);',
     '']));
 end;
 
@@ -1751,7 +1906,7 @@ begin
   CheckSource('TestGenProc_Function_Delphi',
     LinesToStr([ // statements
     'this.w = 0;',
-    'this.Run$s0 = function (a) {',
+    'this.Run$G1 = function (a) {',
     '  var Result = 0;',
     '  var i = 0;',
     '  a = i;',
@@ -1760,7 +1915,7 @@ begin
     '};',
     '']),
     LinesToStr([ // $mod.$main
-    '$mod.w = $mod.Run$s0(3);',
+    '$mod.w = $mod.Run$G1(3);',
     '']));
 end;
 
@@ -1783,20 +1938,20 @@ begin
   ConvertProgram;
   CheckSource('TestGenProc_Overload',
     LinesToStr([ // statements
-    'this.DoIt$s0 = function (a, w) {',
+    'this.DoIt$G1 = function (a, w) {',
     '};',
-    'this.DoIt$s1 = function (a, w) {',
+    'this.DoIt$G2 = function (a, w) {',
     '};',
-    'this.DoIt$1s0 = function (a, b) {',
+    'this.DoIt$1G1 = function (a, b) {',
     '};',
-    'this.DoIt$1s1 = function (a, b) {',
+    'this.DoIt$1G2 = function (a, b) {',
     '};',
     '']),
     LinesToStr([ // $mod.$main
-    '$mod.DoIt$s0(3, 4);',
-    '$mod.DoIt$s1(false, 5);',
-    '$mod.DoIt$1s0(6, true);',
-    '$mod.DoIt$1s1(7.3, true);',
+    '$mod.DoIt$G1(3, 4);',
+    '$mod.DoIt$G2(false, 5);',
+    '$mod.DoIt$1G1(6, true);',
+    '$mod.DoIt$1G2(7.3, true);',
     '']));
 end;
 
@@ -1816,15 +1971,15 @@ begin
   ConvertProgram;
   CheckSource('TestGenProc_infer_OverloadForward',
     LinesToStr([ // statements
-    'this.Run$s0 = function (a, b) {',
-    '  $mod.Run$s0(1, true);',
+    'this.Run$G1 = function (a, b) {',
+    '  $mod.Run$G1(1, true);',
     '};',
-    'this.Run$s1 = function (a, b) {',
-    '  $mod.Run$s0(1, true);',
+    'this.Run$G2 = function (a, b) {',
+    '  $mod.Run$G1(1, true);',
     '};',
     '']),
     LinesToStr([ // $mod.$main
-    '$mod.Run$s1(1.3, true);',
+    '$mod.Run$G2(1.3, true);',
     '']));
 end;
 
@@ -1856,20 +2011,20 @@ begin
   ConvertProgram;
   CheckSource('TestGenProc_infer_OverloadForward',
     LinesToStr([ // statements
-    'this.Run$s0 = function (a, b) {',
-    '  $mod.Run$s0(1, true);',
-    '  $mod.Run$1s0(2, 3);',
-    '  $mod.Run$2s0("foo", "bar");',
+    'this.Run$G1 = function (a, b) {',
+    '  $mod.Run$G1(1, true);',
+    '  $mod.Run$1G1(2, 3);',
+    '  $mod.Run$2G1("foo", "bar");',
     '};',
-    'this.Run$1s0 = function (a, w) {',
+    'this.Run$1G1 = function (a, w) {',
     '};',
-    'this.Run$2s0 = function (a, b) {',
+    'this.Run$2G1 = function (a, b) {',
     '};',
     '']),
     LinesToStr([ // $mod.$main
-    '$mod.Run$s0(1, true);',
-    '$mod.Run$1s0(2, 3);',
-    '$mod.Run$2s0("foo", "bar");',
+    '$mod.Run$G1(1, true);',
+    '$mod.Run$1G1(2, 3);',
+    '$mod.Run$2G1("foo", "bar");',
     '']));
 end;
 
@@ -1893,20 +2048,20 @@ begin
   ConvertProgram;
   CheckSource('TestGenProc_TypeInfo',
     LinesToStr([ // statements
-    'this.Run$s0 = function (a) {',
+    'this.Run$G1 = function (a) {',
     '  var p = null;',
     '  p = rtl.word;',
     '  p = rtl.word;',
     '};',
-    'this.Run$s1 = function (a) {',
+    'this.Run$G2 = function (a) {',
     '  var p = null;',
     '  p = rtl.string;',
     '  p = rtl.string;',
     '};',
     '']),
     LinesToStr([ // $mod.$main
-    '$mod.Run$s0(3);',
-    '$mod.Run$s1("foo");',
+    '$mod.Run$G1(3);',
+    '$mod.Run$G2("foo");',
     '']));
 end;
 
@@ -1930,21 +2085,21 @@ begin
   ConvertProgram;
   CheckSource('TestGenProc_Infer_Widen',
     LinesToStr([ // statements
-    'this.Run$s0 = function (a, b) {',
+    'this.Run$G1 = function (a, b) {',
     '};',
-    'this.Run$s1 = function (a, b) {',
+    'this.Run$G2 = function (a, b) {',
     '};',
-    'this.Run$s2 = function (a, b) {',
+    'this.Run$G3 = function (a, b) {',
     '};',
     '']),
     LinesToStr([ // $mod.$main
-    '$mod.Run$s0(1, 2);',
-    '$mod.Run$s0(2, 2);',
-    '$mod.Run$s1(3, 2);',
-    '$mod.Run$s1(4, 2);',
-    '$mod.Run$s1(5, 2);',
-    '$mod.Run$s2("a", "foo");',
-    '$mod.Run$s2("bar", "c");',
+    '$mod.Run$G1(1, 2);',
+    '$mod.Run$G1(2, 2);',
+    '$mod.Run$G2(3, 2);',
+    '$mod.Run$G2(4, 2);',
+    '$mod.Run$G2(5, 2);',
+    '$mod.Run$G3("a", "foo");',
+    '$mod.Run$G3("bar", "c");',
     '']));
 end;
 
@@ -1966,17 +2121,17 @@ begin
   ConvertProgram;
   CheckSource('TestGenProc_Infer_PassAsArg',
     LinesToStr([ // statements
-    'this.Run$s0 = function (a) {',
+    'this.Run$G1 = function (a) {',
     '  var Result = 0;',
     '  var b = 0;',
-    '  $mod.Run$s0($mod.Run$s0(3));',
-    '  $mod.Run$s0($mod.Run$s0(4));',
+    '  $mod.Run$G1($mod.Run$G1(3));',
+    '  $mod.Run$G1($mod.Run$G1(4));',
     '  return Result;',
     '};',
     '']),
     LinesToStr([ // $mod.$main
-    '$mod.Run$s0($mod.Run$s0(5));',
-    '$mod.Run$s0($mod.Run$s0(6));',
+    '$mod.Run$G1($mod.Run$G1(5));',
+    '$mod.Run$G1($mod.Run$G1(6));',
     '']));
 end;
 
@@ -2013,27 +2168,83 @@ begin
   ConvertProgram;
   CheckSource('TestGenMethod_ObjFPC',
     LinesToStr([ // statements
-    'rtl.createClass($mod, "TObject", null, function () {',
+    'rtl.createClass(this, "TObject", null, function () {',
     '  this.$init = function () {',
     '  };',
     '  this.$final = function () {',
     '  };',
-    '  this.Run$s0 = function (a, b) {',
-    '    this.Run$s0(1, true);',
-    '    this.Run$1s0(2, 3);',
-    '    this.Run$2s0("foo", "bar");',
+    '  this.Run$G1 = function (a, b) {',
+    '    this.Run$G1(1, true);',
+    '    this.Run$1G1(2, 3);',
+    '    this.Run$2G1("foo", "bar");',
     '  };',
-    '  this.Run$1s0 = function (a, w) {',
+    '  this.Run$1G1 = function (a, w) {',
     '  };',
-    '  this.Run$2s0 = function (a, b) {',
+    '  this.Run$2G1 = function (a, b) {',
     '  };',
     '});',
     'this.o = null;',
     '']),
     LinesToStr([ // $mod.$main
-    '$mod.o.Run$s0(1, true);',
-    '$mod.o.Run$1s0(2, 3);',
-    '$mod.o.Run$2s0("foo", "bar");',
+    '$mod.o.Run$G1(1, true);',
+    '$mod.o.Run$1G1(2, 3);',
+    '$mod.o.Run$2G1("foo", "bar");',
+    '']));
+end;
+
+procedure TTestGenerics.TestGen_Array_OtherUnit;
+begin
+  WithTypeInfo:=true;
+  StartProgram(true,[supTObject]);
+  AddModuleWithIntfImplSrc('UnitA.pas',
+  LinesToStr([
+  'type',
+  '  generic TDyn<T> = array of T;',
+  '  generic TStatic<T> = array[1..2] of T;',
+  '']),
+  '');
+  AddModuleWithIntfImplSrc('UnitB.pas',
+  LinesToStr([
+  'uses UnitA;',
+  'type',
+  '  TAnt = class end;',
+  '  TAntArray = specialize TDyn<TAnt>;',
+  'procedure Run;',
+  '']),
+  LinesToStr([
+  'procedure Run;',
+  'begin',
+  '  if typeinfo(TAntArray)=nil then ;',
+  'end;',
+  '']));
+  Add([
+  'uses UnitB;',
+  'begin',
+  '  Run;',
+  '']);
+  ConvertProgram;
+  CheckUnit('UnitA.pas',
+    LinesToStr([ // statements
+    'rtl.module("UnitA", ["system"], function () {',
+    '  var $mod = this;',
+    '  this.$rtti.$DynArray("TDyn<UnitB.TAnt>", {});',
+    '});']));
+  CheckUnit('UnitB.pas',
+    LinesToStr([ // statements
+    'rtl.module("UnitB", ["system", "UnitA"], function () {',
+    '  var $mod = this;',
+    '  rtl.createClass(this, "TAnt", pas.system.TObject, function () {',
+    '  });',
+    '  this.Run = function () {',
+    '    if (pas.UnitA.$rtti["TDyn<UnitB.TAnt>"] === null) ;',
+    '  };',
+    '});']));
+  CheckSource('TestGen_Array_OtherUnit',
+    LinesToStr([ // statements
+    'pas.UnitA.$rtti["TDyn<UnitB.TAnt>"].eltype = pas.UnitB.$rtti["TAnt"];',
+    '']),
+    LinesToStr([ // $mod.$main
+    '  pas.UnitB.Run();',
     '']));
 end;
 
@@ -2052,12 +2263,16 @@ begin
   '  TBird = record',
   '    b: word;',
   '  end;',
+  '  TAnt = class end;',
+  '  TAntArray = specialize TDyn<TAnt>;',
   'var',
   '  d: specialize TDyn<TBird>;',
   '  s: specialize TStatic<TBird>;',
+  '  p: pointer;',
   'begin',
   '  d[0].b:=s[1].b;',
   '  s:=s;',
+  '  p:=typeinfo(TAntArray);',
   '']));
   Add([
   'uses UnitA;',
@@ -2069,13 +2284,14 @@ begin
     'rtl.module("UnitA", ["system"], function () {',
     '  var $mod = this;',
     '  var $impl = $mod.$impl;',
-    '  $mod.$rtti.$DynArray("TDyn<UnitA.TBird>", {});',
+    '  this.$rtti.$DynArray("TDyn<UnitA.TAnt>", {});',
+    '  this.$rtti.$DynArray("TDyn<UnitA.TBird>", {});',
     '  this.TStatic$G1$clone = function (a) {',
     '    var r = [];',
     '    for (var i = 0; i < 2; i++) r.push($impl.TBird.$clone(a[i]));',
     '    return r;',
     '  };',
-    '  $mod.$rtti.$StaticArray("TStatic<UnitA.TBird>", {',
+    '  this.$rtti.$StaticArray("TStatic<UnitA.TBird>", {',
     '    dims: [2]',
     '  });',
     '  $mod.$implcode = function () {',
@@ -2091,16 +2307,21 @@ begin
     '      var $r = $mod.$rtti.$Record("TBird", {});',
     '      $r.addField("b", rtl.word);',
     '    });',
+    '    rtl.createClass($impl, "TAnt", pas.system.TObject, function () {',
+    '    });',
     '    $impl.d = [];',
     '    $impl.s = rtl.arraySetLength(null, $impl.TBird, 2);',
+    '    $impl.p = null;',
     '  };',
     '  $mod.$init = function () {',
     '    $impl.d[0].b = $impl.s[0].b;',
     '    $impl.s = $mod.TStatic$G1$clone($impl.s);',
+    '    $impl.p = $mod.$rtti["TDyn<UnitA.TAnt>"];',
     '  };',
     '}, []);']));
-  CheckSource('TestGen_Class_ClassVarRecord_UnitImpl',
+  CheckSource('TestGen_ArrayOfUnitImplRec',
     LinesToStr([ // statements
+    'pas.UnitA.$rtti["TDyn<UnitA.TAnt>"].eltype = pas.UnitA.$rtti["TAnt"];',
     'pas.UnitA.$rtti["TDyn<UnitA.TBird>"].eltype = pas.UnitA.$rtti["TBird"];',
     'pas.UnitA.$rtti["TStatic<UnitA.TBird>"].eltype = pas.UnitA.$rtti["TBird"];',
     '']),
@@ -2195,7 +2416,7 @@ begin
     'rtl.module("UnitA", ["system"], function () {',
     '  var $mod = this;',
     '  var $impl = $mod.$impl;',
-    '  $mod.$rtti.$ProcVar("TAnt<UnitA.TBird>", {',
+    '  this.$rtti.$ProcVar("TAnt<UnitA.TBird>", {',
     '    init: function () {',
     '      this.procsig = rtl.newTIProcSig([["a", $mod.$rtti["TBird"], 2]], $mod.$rtti["TBird"]);',
     '    }',

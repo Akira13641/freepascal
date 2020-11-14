@@ -123,11 +123,11 @@ resourcestring
   SParserNoConstructorAllowed = 'Constructors or Destructors are not allowed in Interfaces or Records';
   SParserNoFieldsAllowedInX = 'Fields are not allowed in %s';
   SParserInvalidRecordVisibility = 'Records can only have public and (strict) private as visibility specifiers';
-  SErrRecordConstantsNotAllowed = 'Record constants not allowed at this location.';
-  SErrRecordVariablesNotAllowed = 'Record variables not allowed at this location.';
-  SErrRecordMethodsNotAllowed = 'Record methods not allowed at this location.';
-  SErrRecordPropertiesNotAllowed = 'Record properties not allowed at this location.';
-  SErrRecordTypesNotAllowed = 'Record types not allowed at this location.';
+  SErrRecordConstantsNotAllowed = 'Record constants not allowed at this location';
+  SErrRecordVariablesNotAllowed = 'Record variables not allowed at this location';
+  SErrRecordMethodsNotAllowed = 'Record methods not allowed at this location';
+  SErrRecordPropertiesNotAllowed = 'Record properties not allowed at this location';
+  SErrRecordTypesNotAllowed = 'Record types not allowed at this location';
   SParserTypeNotAllowedHere = 'Type "%s" not allowed here';
   SParserNotAnOperand = 'Not an operand: (%d : %s)';
   SParserArrayPropertiesCannotHaveDefaultValue = 'Array properties cannot have default value';
@@ -440,6 +440,7 @@ type
     procedure ParseFinalization;
     procedure ParseDeclarations(Declarations: TPasDeclarations);
     procedure ParseStatement(Parent: TPasImplBlock; out NewImplElement: TPasImplElement);
+    procedure ParseAdhocExpression(out NewExprElement: TPasExpr);
     procedure ParseLabels(AParent: TPasElement);
     procedure ParseProcBeginBlock(Parent: TProcedureBody);
     procedure ParseProcAsmBlock(Parent: TProcedureBody);
@@ -450,7 +451,8 @@ type
     procedure ParseArgList(Parent: TPasElement;
       Args: TFPList; // list of TPasArgument
       EndToken: TToken);
-    procedure ParseProcedureOrFunction(Parent: TPasElement; Element: TPasProcedureType; ProcType: TProcType; OfObjectPossible: Boolean);
+    procedure ParseProcedureOrFunction(Parent: TPasElement;
+      Element: TPasProcedureType; ProcType: TProcType; OfObjectPossible: Boolean);
     procedure ParseProcedureBody(Parent: TPasElement);
     function ParseMethodResolution(Parent: TPasElement): TPasMethodResolution;
     // Properties for external access
@@ -2539,21 +2541,36 @@ begin
           Expr:=Result;
           if Expr.Kind=pekBinary then
             begin
-            if Expr.OpCode<>eopSubIdent then
+            Bin:=TBinaryExpr(Expr);
+            if Bin.OpCode<>eopSubIdent then
               ParseExcSyntaxError;
-            Expr:=TBinaryExpr(Expr).right;
-            end;
+            Expr:=Bin.right;
+            end
+          else
+            Bin:=nil;
           if Expr.Kind<>pekIdent then
             ParseExcSyntaxError;
 
           // read specialized params
-          ISE:=TInlineSpecializeExpr(CreateElement(TInlineSpecializeExpr,'',AParent,SrcPos));
+          if Bin<>nil then
+            ISE:=TInlineSpecializeExpr(CreateElement(TInlineSpecializeExpr,'',Bin,SrcPos))
+          else
+            ISE:=TInlineSpecializeExpr(CreateElement(TInlineSpecializeExpr,'',AParent,SrcPos));
           ReadSpecializeArguments(ISE,ISE.Params);
 
           // A<B>  or  something.A<B>
-          ISE.NameExpr:=Result;
-          Result.Parent:=ISE;
-          Result:=ISE;
+          ISE.NameExpr:=Expr;
+          Expr.Parent:=ISE;
+          if Bin<>nil then
+            begin
+            // something.A<B>
+            Bin.Right:=ISE;
+            end
+          else
+            begin
+            // A<B>
+            Result:=ISE;
+            end;
           ISE:=nil;
           CanSpecialize:=aCannot;
           NextToken;
@@ -3043,6 +3060,7 @@ begin
   FCurModule:=Module;
   HasFinished:=true;
   try
+    Scanner.CurModuleName:=AUnitName;
     if Assigned(Engine.Package) then
       begin
       Module.PackageName := Engine.Package.Name;
@@ -3214,6 +3232,7 @@ begin
   HasFinished:=true;
   FCurModule:=Module;
   try
+    Scanner.CurModuleName:=N;
     if Assigned(Engine.Package) then
     begin
       Module.PackageName := Engine.Package.Name;
@@ -3290,6 +3309,7 @@ begin
   HasFinished:=true;
   FCurModule:=Module;
   try
+    Scanner.CurModuleName:=N;
     if Assigned(Engine.Package) then
     begin
       Module.PackageName := Engine.Package.Name;
@@ -4997,7 +5017,7 @@ begin
     ptAnonymousProcedure,ptAnonymousFunction:
       case CurToken of
       tkIdentifier, // e.g. procedure assembler
-      tkbegin,tkvar,tkconst,tktype,tkprocedure,tkfunction:
+      tkbegin,tkvar,tkconst,tktype,tkprocedure,tkfunction,tkasm:
         UngetToken;
       tkColon:
         if ProcType=ptAnonymousFunction then
@@ -5299,7 +5319,7 @@ begin
         ResultEl.ResultType := ParseType(ResultEl,CurSourcePos);
       end;
   else
-    resultEl:=Nil;
+    ResultEl:=Nil;
   end;
   if OfObjectPossible then
     begin
@@ -5311,7 +5331,7 @@ begin
       end
     else if (CurToken = tkIs) then
       begin
-      expectToken(tkIdentifier);
+      ExpectToken(tkIdentifier);
       if (lowerCase(CurTokenString)<>'nested') then
         ParseExc(nParserExpectedNested,SParserExpectedNested);
       Element.IsNested:=True;
@@ -5985,7 +6005,20 @@ begin
               El:=nil;
             end;
             if (CurToken=tkelse) and (TPasImplIfElse(CurBlock).ElseBranch=nil) then
-              break; // add next statement as ElseBranch
+              begin
+                // Check if next token is an else too
+                NextToken;
+                if CurToken = tkElse then
+                  begin
+                    // empty ELSE statement without semicolon e.g. if condition then [...] else else
+                    El:=TPasImplCommand(CreateElement(TPasImplCommand,'', CurBlock,CurTokenPos));
+                    CurBlock.AddElement(El); // this sets TPasImplIfElse(CurBlock).IfBranch:=El
+                    El:=nil;
+                    CloseBlock;
+                  end;
+                UngetToken;
+                break; // add next statement as ElseBranch
+              end;
             end
           else if (CurBlock is TPasImplTryExcept) and (CurToken=tkelse) then
             begin
@@ -7798,6 +7831,11 @@ function TPasParser.CreateRecordValues(AParent: TPasElement): TRecordValues;
 begin
   Result:=TRecordValues(CreateElement(TRecordValues,'',AParent));
   Result.Kind:=pekListOfExp;
+end;
+
+procedure TPasParser.ParseAdhocExpression(out NewExprElement: TPasExpr);
+begin
+  NewExprElement := DoParseExpression(nil);
 end;
 
 initialization

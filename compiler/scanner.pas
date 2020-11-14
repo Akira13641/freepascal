@@ -621,6 +621,14 @@ implementation
                  include(init_settings.localswitches,cs_strict_var_strings);
              end;
 
+           { in delphi mode, excess precision is by default on }
+           if ([m_delphi] * current_settings.modeswitches <> []) then
+             begin
+               include(current_settings.localswitches,cs_excessprecision);
+               if changeinit then
+                 include(init_settings.localswitches,cs_excessprecision);
+             end;
+
 {$ifdef i8086}
            { Do not force far calls in the TP mode by default, force it in other modes }
            if (m_tp7 in current_settings.modeswitches) then
@@ -2255,6 +2263,11 @@ type
       begin
         current_scanner.skipspace;
         hs:=current_scanner.readid;
+        if hs='' then
+          begin
+            Message(scan_e_emptymacroname);
+            exit;
+          end;
         mac:=tmacro(search_macro(hs));
         if not assigned(mac) or (mac.owner <> current_module.localmacrosymtable) then
           begin
@@ -2527,9 +2540,15 @@ type
            macroIsString:=true;
            case hs of
              'TIME':
-               hs:=gettimestr;
+               if timestr<>'' then
+                 hs:=timestr
+               else
+                 hs:=gettimestr;
              'DATE':
-               hs:=getdatestr;
+               if datestr<>'' then
+                 hs:=datestr
+               else
+                 hs:=getdatestr;
              'DATEYEAR':
                begin
                  hs:=tostr(startsystime.Year);

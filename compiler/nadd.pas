@@ -490,7 +490,7 @@ implementation
 
 
       var
-        t       , vl, hp: tnode;
+        t,vl,hp,lefttarget,righttarget: tnode;
         lt,rt   : tnodetype;
         hdef,
         rd,ld   , inttype: tdef;
@@ -506,6 +506,7 @@ implementation
         b       : boolean;
         cr, cl  : Tconstexprint;
         v2p, c2p, c1p, v1p: pnode;
+        p1,p2: TConstPtrUInt;
       begin
         result:=nil;
         l1:=0;
@@ -1309,6 +1310,54 @@ implementation
               end;
           end;
 
+        { check if
+           typeinfo(<type1>)=/<>typeinfo(<type2>)
+          can be evaluated at compile time
+        }
+        lefttarget:=actualtargetnode(@left)^;
+        righttarget:=actualtargetnode(@right)^;
+        if (nodetype in [equaln,unequaln]) and (lefttarget.nodetype=inlinen) and (righttarget.nodetype=inlinen) and
+          (tinlinenode(lefttarget).inlinenumber=in_typeinfo_x) and (tinlinenode(righttarget).inlinenumber=in_typeinfo_x) and
+          (tinlinenode(lefttarget).left.nodetype=typen) and (tinlinenode(righttarget).left.nodetype=typen) then
+          begin
+            case nodetype of
+              equaln:
+                result:=cordconstnode.create(ord(ttypenode(tinlinenode(lefttarget).left).resultdef=ttypenode(tinlinenode(righttarget).left).resultdef),bool8type,false);
+              unequaln:
+                result:=cordconstnode.create(ord(ttypenode(tinlinenode(lefttarget).left).resultdef<>ttypenode(tinlinenode(righttarget).left).resultdef),bool8type,false);
+              else
+                Internalerror(2020092901);
+            end;
+            exit;
+          end;
+
+        if is_constpointernode(left) and is_constpointernode(right) then
+          begin
+            p1:=0;
+            p2:=0;
+            if left.nodetype=pointerconstn then
+              p1:=tpointerconstnode(left).value;
+            if right.nodetype=pointerconstn then
+              p2:=tpointerconstnode(right).value;
+            case nodetype of
+              equaln:
+                result:=cordconstnode.create(ord(p1=p2),bool8type,false);
+              unequaln:
+                result:=cordconstnode.create(ord(p1<>p2),bool8type,false);
+              gtn:
+                result:=cordconstnode.create(ord(p1>p2),bool8type,false);
+              ltn:
+                result:=cordconstnode.create(ord(p1<p2),bool8type,false);
+              gten:
+                result:=cordconstnode.create(ord(p1>=p2),bool8type,false);
+              lten:
+                result:=cordconstnode.create(ord(p1<=p2),bool8type,false);
+              else
+                Internalerror(2020100101);
+            end;
+            exit;
+          end;
+
         { slow simplifications }
         if cs_opt_level2 in current_settings.optimizerswitches then
           begin
@@ -1835,7 +1884,8 @@ implementation
              floattype for results }
            if (right.resultdef.typ=floatdef) and
               (left.resultdef.typ=floatdef) and
-              (tfloatdef(left.resultdef).floattype=tfloatdef(right.resultdef).floattype) then
+              (tfloatdef(left.resultdef).floattype=tfloatdef(right.resultdef).floattype) and
+              not(tfloatdef(left.resultdef).floattype in [s64comp,s64currency]) then
              begin
                if cs_excessprecision in current_settings.localswitches then
                  resultrealdef:=pbestrealtype^
@@ -2842,7 +2892,7 @@ implementation
                     { find proc field in methodpointer record }
                     hsym:=tfieldvarsym(trecorddef(methodpointertype).symtable.Find('proc'));
                     if not assigned(hsym) then
-                      internalerror(200412043);
+                      internalerror(2004120405);
                     { Compare tmehodpointer(left).proc }
                     right:=csubscriptnode.create(
                                  hsym,
@@ -3223,29 +3273,52 @@ implementation
           newstatement : tstatementnode;
           temp    : ttempcreatenode;
         begin
-          { add two var sets }
-          result:=internalstatements(newstatement);
+          { directly load the result set into the assignee if possible }
+          if assigned(aktassignmentnode) and
+              (aktassignmentnode.right=self) and
+              (aktassignmentnode.left.resultdef=resultdef) and
+              valid_for_var(aktassignmentnode.left,false) then
+            begin
+              result:=ccallnode.createintern(n,
+                ccallparanode.create(cordconstnode.create(resultdef.size,sinttype,false),
+                ccallparanode.create(aktassignmentnode.left.getcopy,
+                ccallparanode.create(right,
+                ccallparanode.create(left,nil))))
+              );
 
-          { create temp for result }
-          temp:=ctempcreatenode.create(resultdef,resultdef.size,tt_persistent,true);
-          addstatement(newstatement,temp);
+              { remove reused parts from original node }
+              left:=nil;
+              right:=nil;
 
-          addstatement(newstatement,ccallnode.createintern(n,
-            ccallparanode.create(cordconstnode.create(resultdef.size,sinttype,false),
-            ccallparanode.create(ctemprefnode.create(temp),
-            ccallparanode.create(right,
-            ccallparanode.create(left,nil)))))
-          );
+              include(aktassignmentnode.flags,nf_assign_done_in_right);
+              firstpass(result);
+            end
+          else
+            begin
+              { add two var sets }
+              result:=internalstatements(newstatement);
 
-          { remove reused parts from original node }
-          left:=nil;
-          right:=nil;
-          { the last statement should return the value as
-            location and type, this is done be referencing the
-            temp and converting it first from a persistent temp to
-            normal temp }
-          addstatement(newstatement,ctempdeletenode.create_normal_temp(temp));
-          addstatement(newstatement,ctemprefnode.create(temp));
+              { create temp for result }
+              temp:=ctempcreatenode.create(resultdef,resultdef.size,tt_persistent,true);
+              addstatement(newstatement,temp);
+
+              addstatement(newstatement,ccallnode.createintern(n,
+                ccallparanode.create(cordconstnode.create(resultdef.size,sinttype,false),
+                ccallparanode.create(ctemprefnode.create(temp),
+                ccallparanode.create(right,
+                ccallparanode.create(left,nil)))))
+              );
+
+              { remove reused parts from original node }
+              left:=nil;
+              right:=nil;
+              { the last statement should return the value as
+                location and type, this is done be referencing the
+                temp and converting it first from a persistent temp to
+                normal temp }
+              addstatement(newstatement,ctempdeletenode.create_normal_temp(temp));
+              addstatement(newstatement,ctemprefnode.create(temp));
+            end;
         end;
 
       var
@@ -3520,9 +3593,16 @@ implementation
       var
         temp: tnode;
         leftoriginallysigned,
-        canbesignedconst, canbeunsignedconst: boolean;
+        canbesignedconst, canbeunsignedconst, swapped: boolean;
       begin
         result := false;
+        swapped := false;
+        { make sure that if there is a constant, that it's on the right }
+        if left.nodetype = ordconstn then
+          begin
+            swapleftright;
+            swapped := true;
+          end;
         if is_32to64typeconv(left) then
           begin
             leftoriginallysigned:=is_signed(ttypeconvnode(left).left.resultdef);
@@ -3561,6 +3641,10 @@ implementation
                 result := true;
               end;
           end;
+        { pass_Typecheck caches left/right type and resultdef, so restore the
+          original order }
+        if not result and swapped then
+          swapleftright;
       end;
 
 
@@ -3698,11 +3782,7 @@ implementation
 
         { make sure that if there is a constant, that it's on the right }
         if left.nodetype = ordconstn then
-          begin
-            temp := right;
-            right := left;
-            left := temp;
-          end;
+          swapleftright;
 
         { can we use a shift instead of a mul? }
         if not (cs_check_overflow in current_settings.localswitches) and

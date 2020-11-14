@@ -38,12 +38,13 @@ uses
   Classes, SysUtils, contnrs,
   jsbase, jstree, jswriter, JSSrcMap, fpjson,
   PScanner, PParser, PasTree, PasResolver, PasResolveEval, PasUseAnalyzer,
+  Pas2JSUtils,
   pas2jsresstrfile, pas2jsresources, pas2jshtmlresources, pas2jsjsresources,
   FPPas2Js, FPPJsSrcMap, Pas2jsLogger, Pas2jsFS, Pas2jsPParser, Pas2jsUseAnalyzer;
 
 const
-  VersionMajor = 1;
-  VersionMinor = 5;
+  VersionMajor = 2;
+  VersionMinor = 1;
   VersionRelease = 1;
   VersionExtra = '';
   DefaultConfigFile = 'pas2js.cfg';
@@ -96,6 +97,7 @@ const
   nPostProcessorFinished = 143; sPostProcessorFinished = 'Post processor finished';
   nRTLIdentifierChanged = 144; sRTLIdentifierChanged = 'RTL identifier %s changed from %s to %s';
   nSkipNoConstResourcestring = 145; sSkipNoConstResourcestring = 'Resource string %s is not a constant, not adding to resourcestrings file.';
+  nUnknownOptimizationOption = 146; sUnknownOptimizationOption = 'unknown -Oo option %s';
   // Note: error numbers 201+ are used by Pas2jsFileCache
 
 //------------------------------------------------------------------------------
@@ -133,9 +135,10 @@ type
     coWriteMsgToStdErr,
     coPrecompile, // create precompile file
     // optimizations
-    coEnumValuesAsNumbers,
-    coKeepNotUsedPrivates,
-    coKeepNotUsedDeclarationsWPO,
+    coEnumValuesAsNumbers, // -O1
+    coKeepNotUsedPrivates, // -O-
+    coKeepNotUsedDeclarationsWPO, // -O-
+    coShortRefGlobals, // -O2
     // source map
     coSourceMapCreate,
     coSourceMapInclude,
@@ -151,7 +154,7 @@ type
     rvcUnit
     );
   TP2JSResourceStringFile = (rsfNone,rsfUnit,rsfProgram);
-  TResourceMode = (rmNone,rmHTML,rmJS);
+  TResourceMode = (Skip,rmNone,rmHTML,rmJS);
 
 const
   DefaultP2jsCompilerOptions = [coShowErrors,coWriteableConst,coUseStrict,coSourceMapXSSIHeader];
@@ -160,9 +163,10 @@ const
   DefaultResourceMode = rmHTML;
 
   coShowAll = [coShowErrors..coShowDebug];
-  coO1Enable = [coEnumValuesAsNumbers];
-  coO1Disable = [coKeepNotUsedPrivates,coKeepNotUsedDeclarationsWPO];
-
+  coAllOptimizations = [coEnumValuesAsNumbers..coShortRefGlobals];
+  coO0 = [coKeepNotUsedPrivates,coKeepNotUsedDeclarationsWPO];
+  coO1 = [coEnumValuesAsNumbers];
+  coO2 = coO1+[coShortRefGlobals];
 
   p2jscoCaption: array[TP2jsCompilerOption] of string = (
     // only used by experts or programs parsing the pas2js output, no need for resourcestrings
@@ -195,6 +199,7 @@ const
     'Enum values as numbers',
     'Keep not used private declarations',
     'Keep not used declarations (WPO)',
+    'Create short local variables for globals',
     'Create source map',
     'Include Pascal sources in source map',
     'Do not shorten filenames in source map',
@@ -532,7 +537,6 @@ type
     function GetTargetProcessor: TPasToJsProcessor;
     function GetWriteDebugLog: boolean;
     function GetWriteMsgToStdErr: boolean;
-    function HandleOptionOptimization(C: Char; aValue: String): Boolean;
     function IndexOfInsertJSFilename(const aFilename: string): integer;
     procedure InsertCustomJSFiles(aWriter: TPas2JSMapper);
     function LoadUsedUnit(Info: TLoadUnitInfo; Context: TPas2jsCompilerFile): TPas2jsCompilerFile;
@@ -607,6 +611,7 @@ type
     function HandleOptionM(aValue: String; Quick: Boolean): Boolean; virtual;
     procedure HandleOptionConfigFile(aPos: Integer; const aFileName: string); virtual;
     procedure HandleOptionInfo(aValue: string);
+    function HandleOptionOptimization(C: Char; aValue: String): Boolean;
     // DoWriteJSFile: return false to use the default write function.
     function DoWriteJSFile(const DestFilename: String; aWriter: TPas2JSMapper): Boolean; virtual;
     procedure Compile(StartTime: TDateTime);
@@ -730,9 +735,9 @@ function GetCompiledTargetOS: string;
 function GetCompiledTargetCPU: string;
 
 implementation
-// !! No filesystem units here.
 
-uses pas2jsutils;
+// !! No filesystem units here.
+//uses ;
 
 
 function GetCompiledDate: string;
@@ -1048,6 +1053,8 @@ begin
 
   if coEnumValuesAsNumbers in Compiler.Options then
     Include(Result,fppas2js.coEnumNumbers);
+  if coShortRefGlobals in Compiler.Options then
+    Include(Result,fppas2js.coShortRefGlobals);
 
   if coLowerCase in Compiler.Options then
     Include(Result,fppas2js.coLowerCase)
@@ -1094,6 +1101,8 @@ begin
   Scanner.CurrentValueSwitch[vsInterfaces]:=InterfaceTypeNames[Compiler.InterfaceType];
   if coAllowCAssignments in Compiler.Options then
     Scanner.Options:=Scanner.Options+[po_cassignments];
+  if Compiler.ResourceMode=rmNone then
+    Scanner.Options:= Scanner.Options+[po_DisableResources];
   // Note: some Scanner.Options are set by TPasResolver
   for i:=0 to Compiler.Defines.Count-1 do
     begin
@@ -1175,6 +1184,7 @@ begin
   // maybe emit message ?
   FResourceHandler.StartUnit(PasModule.Name);
   FResourceHandler.HandleResource(aFileName,aOptions);
+  if Sender=nil then ;
 end;
 
 function TPas2jsCompilerFile.OnConverterIsElementUsed(Sender: TObject;
@@ -3292,6 +3302,8 @@ begin
   r(mtWarning,nPostProcessorWarnX,sPostProcessorWarnX);
   r(mtInfo,nPostProcessorFinished,sPostProcessorFinished);
   r(mtInfo,nRTLIdentifierChanged,sRTLIdentifierChanged);
+  r(mtNote,nSkipNoConstResourcestring,sSkipNoConstResourcestring);
+  r(mtWarning,nUnknownOptimizationOption,sUnknownOptimizationOption);
   Pas2jsPParser.RegisterMessages(Log);
 end;
 
@@ -3351,39 +3363,6 @@ begin
     if ErrorMsg<>'' then
       ParamFatal(ErrorMsg);
   end;
-end;
-
-function TPas2jsCompiler.HandleOptionOptimization(C: Char; aValue: String): Boolean;
-Var
-  Enable: Boolean;
-begin
-  Result:=True;
-  case C of
-  '-': Options:=Options-coO1Enable+coO1Disable;
-  '1': Options:=Options+coO1Enable-coO1Disable;
-  'o':
-    begin
-    if aValue='' then
-      ParamFatal('missing -Oo option');
-    Enable:=true;
-    c:=aValue[length(aValue)];
-    if c in ['+','-'] then
-    begin
-      Enable:=c='+';
-      Delete(aValue,length(aValue),1);
-    end;
-    Case LowerCase(avalue) of
-     'enumnumbers': SetOption(coEnumValuesAsNumbers,Enable);
-     'emovenotusedprivates': SetOption(coKeepNotUsedPrivates,not Enable);
-     'removenotuseddeclarations': SetOption(coKeepNotUsedDeclarationsWPO,not Enable)
-    else
-      Result:=False;
-    end;
-    end;
-  else
-    Result:=False;
-  end;
-
 end;
 
 function TPas2jsCompiler.HandleOptionJ(C: Char; aValue: String;
@@ -3636,10 +3615,8 @@ begin
 end;
 
 procedure TPas2jsCompiler.HandleOptionConfigFile(aPos: Integer; const aFileName: string);
-
 Var
   FN: String;
-
 begin
   // load extra config file
   if aFilename='' then
@@ -3651,7 +3628,6 @@ begin
 end;
 
 procedure TPas2jsCompiler.HandleOptionInfo(aValue: string);
-
 Var
   InfoMsg: String;
 
@@ -3727,9 +3703,9 @@ begin
         Log.LogPlain(PasToJsProcessorNames[pr]);
     'm':
       begin
-      // write list of supported modeswitches
-      for ms in (msAllPas2jsModeSwitches-AllLanguageModes) do
-        Log.LogPlain(SModeSwitchNames[ms]);
+        // write list of supported modeswitches
+        for ms in (msAllPas2jsModeSwitches-AllLanguageModes) do
+          Log.LogPlain(SModeSwitchNames[ms]);
       end;
     'o':
       begin
@@ -3737,6 +3713,7 @@ begin
         Log.LogPlain('EnumNumbers');
         Log.LogPlain('RemoveNotUsedPrivates');
         Log.LogPlain('RemoveNotUsedDeclarations');
+        Log.LogPlain('ShortRefGlobals');
       end;
     't':
       // write list of supported targets
@@ -3760,6 +3737,44 @@ begin
   end;
   if InfoMsg<>'' then
     Log.LogPlain(InfoMsg);
+end;
+
+function TPas2jsCompiler.HandleOptionOptimization(C: Char; aValue: String): Boolean;
+Var
+  Enable: Boolean;
+begin
+  Result:=True;
+  case C of
+  '-': Options:=Options-coAllOptimizations+coO0;
+  '1': Options:=Options-coAllOptimizations+coO1;
+  '2': Options:=Options-coAllOptimizations+coO2;
+  'o':
+    begin
+    if aValue='' then
+      ParamFatal('missing -Oo option');
+    Enable:=true;
+    c:=aValue[length(aValue)];
+    if c in ['+','-'] then
+    begin
+      Enable:=c='+';
+      Delete(aValue,length(aValue),1);
+    end
+    else if lowercase(LeftStr(aValue,2))='no' then begin
+      Enable:=false;
+      Delete(aValue,1,2);
+    end;
+    Case LowerCase(aValue) of
+     'enumnumbers': SetOption(coEnumValuesAsNumbers,Enable);
+     'removenotusedprivates': SetOption(coKeepNotUsedPrivates,not Enable);
+     'removenotuseddeclarations': SetOption(coKeepNotUsedDeclarationsWPO,not Enable);
+     'shortrefglobals': SetOption(coShortRefGlobals,not Enable);
+    else
+      Log.LogMsgIgnoreFilter(nUnknownOptimizationOption,[QuoteStr(aValue)]);
+    end;
+    end;
+  else
+    Result:=False;
+  end;
 end;
 
 procedure TPas2jsCompiler.ReadParam(Param: string; Quick, FromCmdLine: boolean);
@@ -4704,8 +4719,8 @@ begin
   w('     -Jrnone: Do not write resource string file');
   w('     -Jrunit: Write resource string file per unit with all resource strings');
   w('     -Jrprogram: Write resource string file per program with all used resource strings in program');
-  w('   -Jr<x> Control writing of linked resources');
-  w('     -JRnone: Do not write resources');
+  w('   -JR<x> Control writing of linked resources');
+  w('     -JRnone: Skip resource directives');
   w('     -JRjs: Write resources in Javascript structure');
   w('     -JRhtml[=filename] : Write resources as preload links in HTML file (default is projectfile-res.html)');
   w('   -Jpcmd<command>: Run postprocessor. For each generated js execute command passing the js as stdin and read the new js from stdout. This option can be added multiple times to call several postprocessors in succession.');
@@ -4724,11 +4739,13 @@ begin
   w('  -O<x>  : Optimizations:');
   w('    -O-  : Disable optimizations');
   w('    -O1  : Level 1 optimizations (quick and debugger friendly)');
-  //w('    -O2  : Level 2 optimizations (Level 1 + not debugger friendly)');
+  w('    -O2  : Level 2 optimizations (Level 1 + not debugger friendly)');
   w('    -Oo<x>: Enable or disable optimization. The x is case insensitive:');
   w('      -OoEnumNumbers[-]: write enum value as number instead of name. Default in -O1.');
   w('      -OoRemoveNotUsedPrivates[-]: Default is enabled');
   w('      -OoRemoveNotUsedDeclarations[-]: Default enabled for programs with -Jc');
+  w('      -OoRemoveNotUsedPublished[-] : Default is disabled');
+  w('      -OoShortRefGlobals[-]: Insert JS local var for types, modules and static functions. Default enabled in -O2');
   w('  -P<x>  : Set target processor. Case insensitive:');
   w('    -Pecmascript5: default');
   w('    -Pecmascript6');
@@ -4955,6 +4972,7 @@ begin
   Log.LogPlain('Supported Optimizations:');
   Log.LogPlain('  EnumNumbers');
   Log.LogPlain('  RemoveNotUsedPrivates');
+  Log.LogPlain('  ShortRefGlobals');
   Log.LogLn;
   Log.LogPlain('Supported Whole Program Optimizations:');
   Log.LogPlain('  RemoveNotUsedDeclarations');
@@ -5279,9 +5297,8 @@ begin
   end else begin
     // search Pascal file with InFilename
     FoundPasFilename:=FS.FindUnitFileName(UseUnitname,InFilename,ModuleDir,FoundPasIsForeign);
-    if FoundPasFilename='' then
-      exit; // an in-filename unit source is missing -> stop
-    FoundPasUnitName:=ExtractFilenameOnly(InFilename);
+    if FoundPasFilename<>'' then
+      FoundPasUnitName:=ExtractFilenameOnly(InFilename);
 
     // Note: at the moment if there is a source do not search for pcu
     // Eventually search for both, load pcu and if that fails unload pcu and load source
@@ -5290,7 +5307,9 @@ begin
       // no pas file -> search pcu
       FoundPCUFilename:=PCUSupport.FindPCU(UseUnitName);
       if FoundPCUFilename<>'' then
+      begin
         FoundPCUUnitName:=UseUnitName;
+      end;
     end;
   end;
 

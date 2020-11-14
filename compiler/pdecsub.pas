@@ -683,7 +683,7 @@ implementation
             firstpart:=false;
           end;
 
-        function search_object_name(sp:TIDString;gen_error:boolean):tsym;
+        function search_object_name(const sp:TIDString;gen_error:boolean):tsym;
           var
             storepos:tfileposinfo;
             srsymtable:TSymtable;
@@ -1796,7 +1796,7 @@ end;
 procedure pd_public(pd:tabstractprocdef);
 begin
   if pd.typ<>procdef then
-    internalerror(200304266);
+    internalerror(2003042601);
   if try_to_consume(_NAME) then
     begin
       tprocdef(pd).aliasnames.insert(get_stringconst);
@@ -1846,7 +1846,7 @@ var v:Tconstexprint;
 
 begin
   if pd.typ<>procdef then
-    internalerror(200304268);
+    internalerror(2003042602);
   consume(_COLON);
   v:=get_intconst;
   if (v<int64(low(longint))) or (v>int64(high(longint))) then

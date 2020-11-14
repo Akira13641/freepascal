@@ -758,6 +758,9 @@ begin
 {$ifdef llvm}
       'L',
 {$endif}
+{$ifdef xtensa}
+      'x',
+{$endif}
 {$ifdef z80}
       'Z',
 {$endif}
@@ -1586,6 +1589,16 @@ begin
                         description:=Copy(more,j+1,255);
                         break;
                       end;
+                    'D' :
+                      begin
+                        datestr:=Copy(more,j+1,255);
+                        break;
+                      end;
+                    'T' :
+                      begin
+                        timestr:=Copy(more,j+1,255);
+                        break;
+                      end;
                     'v' :
                       begin
                         dllversion:=Copy(more,j+1,255);
@@ -1850,7 +1863,11 @@ begin
                          if UnsetBool(More, j, opt, false) then
                            exclude(init_settings.globalswitches,cs_use_heaptrc)
                          else
-                           include(init_settings.globalswitches,cs_use_heaptrc);
+                           begin
+                             if cs_gdb_valgrind in init_settings.globalswitches then
+                               Message2(option_valgrind_heaptrc_mismatch,'-gh', '-gv');
+                             include(init_settings.globalswitches,cs_use_heaptrc);
+                           end;
                        end;
                      'l' :
                        begin
@@ -1892,7 +1909,11 @@ begin
                          if UnsetBool(More, j, opt, false) then
                            exclude(init_settings.globalswitches,cs_gdb_valgrind)
                          else
-                           include(init_settings.globalswitches,cs_gdb_valgrind);
+                           begin
+                             if cs_use_heaptrc in init_settings.globalswitches then
+                               Message2(option_valgrind_heaptrc_mismatch,'-gh', '-gv');
+                             include(init_settings.globalswitches,cs_gdb_valgrind);
+                           end;
                        end;
                      'w' :
                        begin
@@ -3374,6 +3395,8 @@ begin
       lets disable the feature. }
     system_m68k_amiga:
       target_unsup_features:=[f_dynlibs];
+    system_m68k_sinclairql:
+      target_unsup_features:=[f_threading,f_dynlibs,f_commandargs,f_exitcode];
     system_z80_zxspectrum:
       target_unsup_features:=[f_threading,f_dynlibs{,f_fileio,f_textio},f_commandargs,f_exitcode];
     system_z80_msxdos:
@@ -3387,9 +3410,8 @@ begin
     features:=features+target_unsup_features;
 
 {$if defined(atari) or defined(hasamiga)}
-   { enable vlink as default linker on Atari, Amiga, and MorphOS, but not for cross compilers (for now) }
-   if (target_info.system in [system_m68k_amiga,system_m68k_atari,
-                              system_powerpc_amiga]) and
+   { enable vlink as default linker on Atari and Amiga but not for cross compilers (for now) }
+   if (target_info.system in [system_m68k_amiga,system_m68k_atari,system_powerpc_amiga]) and
       not LinkerSetExplicitly then
      include(init_settings.globalswitches,cs_link_vlink);
 {$endif}
@@ -3939,6 +3961,7 @@ begin
   def_system_macro('FPC_DYNARRAYCOPY_FIXED');
   def_system_macro('FPC_HAS_MEMBAR');
   def_system_macro('FPC_SETBASE_USED');
+  def_system_macro('FPC_ALIGNED_THREADVARTABLES');
 
   { don't remove this, it's also for fpdoc necessary (FK) }
   def_system_macro('FPC_HAS_FEATURE_SUPPORT');
@@ -3951,7 +3974,7 @@ begin
       InternalError(2013092801);
   if tf_x86_far_procs_push_odd_bp in target_info.flags then
     if not UpdateTargetSwitchStr('FARPROCSPUSHODDBP', init_settings.targetswitches, true) then
-      InternalError(2013092801);
+      InternalError(2013092802);
 
   { Use standard Android NDK prefixes when cross-compiling }
   if (source_info.system<>target_info.system) and (target_info.system in systems_android) then
@@ -4493,6 +4516,11 @@ begin
             init_settings.fputype:=fpu_68881;
           end;
       end;
+    system_m68k_sinclairql:
+      begin
+        if not option.CPUSetExplicitly then
+          init_settings.cputype:=cpu_mc68000;
+      end;
     system_m68k_palmos:
       begin
         if not option.CPUSetExplicitly then
@@ -4616,6 +4644,16 @@ begin
       def_system_macro('FPC_HAS_INTERNAL_BSR');
       if CPUARM_HAS_RBIT in cpu_capabilities[init_settings.cputype] then
         def_system_macro('FPC_HAS_INTERNAL_BSF');
+    end;
+{$endif}
+
+{$if defined(xtensa)}
+  { it is determined during system unit compilation if nsau is used for bsr or not,
+    this is not perfect but the current implementation bsf/bsr does not allow another
+    solution }
+  if CPUXTENSA_HAS_NSAx in cpu_capabilities[init_settings.cputype] then
+    begin
+      def_system_macro('FPC_HAS_INTERNAL_BSR');
     end;
 {$endif}
 

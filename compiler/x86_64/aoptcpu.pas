@@ -73,6 +73,8 @@ uses
               case taicpu(p).opcode of
                 A_AND:
                   Result:=OptPass1AND(p);
+                A_IMUL:
+                  Result:=OptPass1Imul(p);
                 A_MOV:
                   Result:=OptPass1MOV(p);
                 A_MOVSX,
@@ -88,6 +90,8 @@ uses
                 A_VMOVUPS,
                 A_VMOVUPD:
                   result:=OptPass1_V_MOVAP(p);
+                A_VSQRTSD,
+                A_VSQRTSS,
                 A_VDIVSD,
                 A_VDIVSS,
                 A_VSUBSD,
@@ -99,9 +103,7 @@ uses
                 A_VANDPD,
                 A_VANDPS,
                 A_VORPD,
-                A_VORPS,
-                A_VXORPD,
-                A_VXORPS:
+                A_VORPS:
                   result:=OptPass1VOP(p);
                 A_MULSD,
                 A_MULSS,
@@ -127,8 +129,14 @@ uses
                   result:=OptPass1FLD(p);
                 A_CMP:
                   result:=OptPass1Cmp(p);
+                A_VPXORD,
+                A_VPXORQ,
+                A_VXORPS,
+                A_VXORPD,
                 A_VPXOR:
                   Result:=OptPass1VPXor(p);
+                A_XORPS,
+                A_XORPD,
                 A_PXOR:
                   Result:=OptPass1PXor(p);
                 else

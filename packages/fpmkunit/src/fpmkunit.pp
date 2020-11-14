@@ -122,7 +122,7 @@ Type
     palmos,macosclassic,darwin,emx,watcom,morphos,netwlibc,
     win64,wince,gba,nds,embedded,symbian,haiku,iphonesim,
     aix,java,android,nativent,msdos,wii,aros,dragonfly,
-    win16,wasm,freertos,zxspectrum,msxdos,ios,amstradcpc
+    win16,wasm,freertos,zxspectrum,msxdos,ios,amstradcpc,sinclairql
   );
   TOSes = Set of TOS;
 
@@ -231,7 +231,8 @@ Const
     {zxspectrum}( false, false, false, false, false, false, false, false, false, false, false, false, false, false,   false, false, false, false, false,  false,  false,   false, true ),
     { msxdos }  ( false, false, false, false, false, false, false, false, false, false, false, false, false, false,   false, false, false, false, false,  false,  false,   false, true ),
     { ios }     ( false, false, false, false, false, false,  true, false, false, false, false, false, false, false,   false, false, true , false, false,  false,  false,   false, false),
-    {amstradcpc}( false, false, false, false, false, false, false, false, false, false, false, false, false, false,   false, false, false, false, false,  false,  false,   false, true )
+    {amstradcpc}( false, false, false, false, false, false, false, false, false, false, false, false, false, false,   false, false, false, false, false,  false,  false,   false, true ),
+    {sinclairql}( false, false, true,  false, false, false, false, false, false, false, false, false, false, false,   false, false, false, false, false,  false,  false,   false, false)
   );
 
   // Useful
@@ -2838,7 +2839,7 @@ begin
       powerpc64:result := GetGccDirArch('cpupowerpc64','-m64');
       arm:      result := GetGccDirArch('cpuarm','-marm -march=armv2');
       aarch64:  result := GetGccDirArch('cpuaarch64','-march=aarch64 -mcmodel=large');
-      m68k:     result := GetGccDirArch('cpum68k','');
+      m68k:     result := GetGccDirArch('cpum68k','-march=68020');
       mips:     result := GetGccDirArch('cpumips','-mips32 -EB -mabi=32');
       mipsel:   result := GetGccDirArch('cpumipsel','-mips32 -EL -mabi=32');
       riscv32:  result := GetGccDirArch('cpuriscv32','-march=rv32imafdc');
@@ -5053,7 +5054,7 @@ begin
 //  FBuildEngine.Defaults:=Defaults;
   FBuildEngine.ListMode:=FListMode;
   FBuildEngine.FInteractive:=FInteractive;
-  FBuildEngine.Verbose := (FLogLevels = AllMessages);
+  FBuildEngine.Verbose := (vlInfo in FLogLevels) or (vlDebug in FLogLevels);
   FBuildEngine.OnLog:=@Self.Log;
   NotifyEventCollection.CallEvents(neaAfterCreateBuildengine, Self);
 end;

@@ -276,7 +276,7 @@ interface
           top_const :
               owner.writer.AsmWrite('$'+tostr(o.val));
           else
-            internalerror(10001);
+            internalerror(2020100810);
         end;
 
            if o.vopext and OTVE_VECTOR_WRITEMASK = OTVE_VECTOR_WRITEMASK then
@@ -328,7 +328,7 @@ interface
           top_const :
             owner.writer.AsmWrite(tostr(o.val));
           else
-            internalerror(10001);
+            internalerror(2020100811);
         end;
       end;
 
@@ -395,6 +395,8 @@ interface
                (getregtype(taicpu(hp).oper[0]^.reg)=R_FPUREGISTER)
               ) then
         begin
+          if (gas_needsuffix[op]<>AttSufMMX) or
+	     (taicpu(hp).opsize in [S_XMM,S_YMM]) then
           owner.writer.AsmWrite(gas_opsize2str[taicpu(hp).opsize]);
         end;
 

@@ -139,10 +139,18 @@ unit aoptcpu;
               case taicpu(p).opcode Of
                 A_AND:
                   Result:=OptPass1And(p);
+                A_IMUL:
+                  Result:=OptPass1Imul(p);
                 A_CMP:
                   Result:=OptPass1Cmp(p);
+                A_VPXORD,
+                A_VPXORQ,
+                A_VXORPS,
+                A_VXORPD,
                 A_VPXOR:
                   Result:=OptPass1VPXor(p);
+                A_XORPS,
+                A_XORPD,
                 A_PXOR:
                   Result:=OptPass1PXor(p);
                 A_FLD:
@@ -197,9 +205,7 @@ unit aoptcpu;
                 A_VANDPD,
                 A_VANDPS,
                 A_VORPD,
-                A_VORPS,
-                A_VXORPD,
-                A_VXORPS:
+                A_VORPS:
                   Result:=OptPass1VOP(p);
                 A_MULSD,
                 A_MULSS,

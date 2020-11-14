@@ -464,8 +464,8 @@ Unit AoptObj;
 
     function JumpTargetOp(ai: taicpu): poper; inline;
       begin
-{$if defined(MIPS) or defined(riscv64) or defined(riscv32)}
-        { MIPS or RiscV branches can have 1,2 or 3 operands, target label is the last one. }
+{$if defined(MIPS) or defined(riscv64) or defined(riscv32) or defined(xtensa)}
+        { MIPS, Xtensa or RiscV branches can have 1,2 or 3 operands, target label is the last one. }
         result:=ai.oper[ai.ops-1];
 {$elseif defined(SPARC64)}
         if ai.ops=2 then
@@ -1644,6 +1644,11 @@ Unit AoptObj;
         p.loadreg(0, NR_X0);
         p.ops:=2;
 {$endif}
+{$ifdef xtensa}
+        p.opcode := aopt_uncondjmp;
+        p.loadoper(0, p.oper[p.ops-1]^);
+        p.ops:=1;
+{$endif}
 {$endif not avr}
 {$ifdef mips}
         { MIPS conditional jump instructions also conntain register
@@ -2459,13 +2464,26 @@ Unit AoptObj;
 
 
     procedure TAOptObj.PeepHoleOptPass1;
+      const
+        MaxPasses: array[1..3] of Cardinal = (1, 2, 8);
       var
         p : tai;
         stoploop, FirstInstruction, JumpOptsAvailable: boolean;
+        PassCount, MaxCount: Cardinal;
       begin
         JumpOptsAvailable := CanDoJumpOpts();
 
         StartPoint := BlockStart;
+        PassCount := 0;
+
+        { Determine the maximum number of passes allowed based on the compiler switches }
+        if (cs_opt_level3 in current_settings.optimizerswitches) then
+          { it should never take more than 8 passes, but the limit is finite to protect against faulty optimisations }
+          MaxCount := MaxPasses[3]
+        else if (cs_opt_level2 in current_settings.optimizerswitches) then
+          MaxCount := MaxPasses[2] { The original double run of Pass 1 }
+        else
+          MaxCount := MaxPasses[1];
 
         repeat
           stoploop:=true;
@@ -2518,7 +2536,10 @@ Unit AoptObj;
                 p := tai(UpdateUsedRegsAndOptimize(p).Next);
 
             end;
-        until stoploop or not(cs_opt_level3 in current_settings.optimizerswitches);
+
+          Inc(PassCount);
+
+        until stoploop or (PassCount >= MaxCount);
       end;
 
 

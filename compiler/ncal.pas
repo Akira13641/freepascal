@@ -1192,6 +1192,13 @@ implementation
                     (parasym.vardef.typ=setdef) then
                    inserttypeconv(left,parasym.vardef);
 
+                 { if an array constructor can be a set and it is passed to
+                   a formaldef, a set must be passed, see also issue #37796 }
+                 if (left.nodetype=arrayconstructorn) and
+                    (parasym.vardef.typ=formaldef) and
+                    (arrayconstructor_can_be_set(left)) then
+                   left:=arrayconstructor_to_set(left,false);
+
                  { set some settings needed for arrayconstructor }
                  if is_array_constructor(left.resultdef) then
                   begin
@@ -4727,6 +4734,10 @@ implementation
         if para.parasym.varspez in [vs_var,vs_out] then
           exit(false);
 
+        { We cannot create a formaldef temp and assign something to it }
+        if para.parasym.vardef.typ=formaldef then
+          exit(false);
+
         { We don't need temps for parameters that are already temps, except if
           the passed temp could be put in a regvar while the parameter inside
           the routine cannot be (e.g., because its address is taken in the
@@ -4743,10 +4754,6 @@ implementation
         if (tparavarsym(para.parasym).varregable in [vr_none,vr_addr]) and
            not(para.left.expectloc in [LOC_REFERENCE,LOC_CREFERENCE]) then
           exit(true);
-
-        { We cannot create a formaldef temp and assign something to it }
-        if para.parasym.vardef.typ=formaldef then
-          exit(false);
 
         { We try to handle complex expressions later by taking their address
           and storing this address in a temp (which is then dereferenced when
@@ -4905,6 +4912,9 @@ implementation
 
             result:=true;
           end
+        { for formaldefs, we do not need a temp., but it must be inherited if they are not regable }
+        else if (para.parasym.vardef.typ=formaldef) and not(tparavarsym(para.parasym).is_regvar(false)) then
+          make_not_regable(para.left,[ra_addr_regable]);
       end;
 
 
@@ -5196,18 +5206,7 @@ implementation
         inlineinitstatement:=nil;
         inlinecleanupstatement:=nil;
 
-        { we cannot replace the whole block by a single assignment if the call
-          has an init/cleanup block
-
-          we could though (not yet done), convert this into a bew block
-          consisting of the init code, the single assignment and the cleanup block
-          This might even enable new transformations }
-        if not(assigned(callinitblock)) and not(assigned(callcleanupblock)) then
-          { if all that's left of the inlined function is an constant assignment
-            to the result, replace the whole block with the constant only }
-          n:=optimize_funcret_assignment(inlineblock)
-        else
-          n:=nil;
+        n:=optimize_funcret_assignment(inlineblock);
         if assigned(n) then
           begin
             inlineblock.free;
