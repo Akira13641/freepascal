@@ -39,5 +39,39 @@ const
   ERR_EX = -17;  { Expression error. }
   ERR_OV = -18;  { Arithmetic overflow. }
   ERR_NI = -19;  { Not implemented. }
-  ERR_RO = -20;	 { Read only. }
+  ERR_RO = -20;  { Read only. }
   ERR_BL = -21;  { Bad line of Basic. }
+
+const
+  Q_OPEN = 0;
+  Q_OPEN_IN = 1;
+  Q_OPEN_NEW = 2;
+  Q_OPEN_OVER = 3;  { Not available on microdrives. }
+  Q_OPEN_DIR = 4;
+
+type
+  Tqlfloat = array[0..5] of byte;
+  Pqlfloat = ^Tqlfloat;
+
+type
+  TQLRect = record
+    q_width : word;
+    q_height : word;
+    q_x : word;
+    q_y : word;
+  end;
+  PQLRect = ^TQLRect;
+
+type
+  TWindowDef = record
+    border_colour : byte;
+    border_width : byte;
+    paper : byte;
+    ink : byte;
+    width : word;
+    height : word;
+    x_origin: word;
+    y_origin: word;
+  end;
+  PWindowDef = ^TWindowDef;
+

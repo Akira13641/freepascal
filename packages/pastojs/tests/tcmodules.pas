@@ -233,7 +233,7 @@ type
   Published
     Procedure TestReservedWords;
 
-    // program/units
+    // program, units, includes
     Procedure TestEmptyProgram;
     Procedure TestEmptyProgramUseStrict;
     Procedure TestEmptyUnit;
@@ -877,6 +877,7 @@ type
     Procedure TestAsync_ConstructorFail;
     Procedure TestAsync_PropertyGetterFail;
     Procedure TestAwait_NonPromiseWithTypeFail;
+    Procedure TestAwait_AsyncCallTypeMismatch;
     Procedure TestAWait_OutsideAsyncFail;
     Procedure TestAWait_Result;
     Procedure TestAWait_ExternalClassPromise;
@@ -884,6 +885,7 @@ type
     Procedure TestAsync_ProcType;
     Procedure TestAsync_ProcTypeAsyncModMismatchFail;
     Procedure TestAsync_Inherited;
+    Procedure TestAsync_ClassInterface;
   end;
 
 function LinesToStr(Args: array of const): string;
@@ -32232,6 +32234,7 @@ begin
   '  Run;',
   '  Run(3);',
   '']);
+  CheckResolverUnexpectedHints();
   ConvertProgram;
   CheckSource('TestAsync_Proc',
     LinesToStr([ // statements
@@ -32296,6 +32299,7 @@ begin
   '    if Fly()=p then ;',
   '  end;',
   '']);
+  CheckResolverUnexpectedHints();
   ConvertProgram;
   CheckSource('TestAsync_CallResultIsPromise',
     LinesToStr([ // statements
@@ -32396,6 +32400,28 @@ begin
   ConvertProgram;
 end;
 
+procedure TTestModule.TestAwait_AsyncCallTypeMismatch;
+begin
+  StartProgram(false);
+  Add([
+  'type',
+  '  TObject = class',
+  '  end;',
+  '  TBird = class',
+  '  end;',
+  'function Fly: TObject; async;',
+  'begin',
+  'end;',
+  'procedure Run; async;',
+  'begin',
+  '  await(TBird,Fly);',
+  'end;',
+  'begin',
+  '']);
+  SetExpectedPasResolverError('Incompatible type arg no. 2: Got "TObject", expected "TBird"',nIncompatibleTypeArgNo);
+  ConvertProgram;
+end;
+
 procedure TTestModule.TestAWait_OutsideAsyncFail;
 begin
   StartProgram(false);
@@ -32454,6 +32480,7 @@ begin
     LinesToStr([
     '$mod.Run(1);'
     ]));
+  SetExpectedPasResolverError('Await without promise',nAwaitWithoutPromise);
 end;
 
 procedure TTestModule.TestAWait_ExternalClassPromise;
@@ -32464,10 +32491,13 @@ begin
   'type',
   '  TJSPromise = class external name ''Promise''',
   '  end;',
-  'function Fly(w: word): TJSPromise; async;',
+  'function Fly(w: word): TJSPromise;',
   'begin',
   'end;',
   'function Jump(w: word): word; async;',
+  'begin',
+  'end;',
+  'function Eat(w: word): TJSPromise; async;',
   'begin',
   'end;',
   'function Run(d: double): word; async;',
@@ -32477,18 +32507,24 @@ begin
   '  Result:=await(word,p);', // promise needs type
   '  Result:=await(word,Fly(3));', // promise needs type
   '  Result:=await(Jump(4));', // async non promise must omit the type
+  '  Result:=await(word,Jump(5));', // async call can provide fitting type
+  '  Result:=await(word,Eat(6));', // promise needs type
   'end;',
   'begin',
   '']);
   ConvertProgram;
   CheckSource('TestAWait_ExternalClassPromise',
     LinesToStr([ // statements
-    'this.Fly = async function (w) {',
+    'this.Fly = function (w) {',
     '  var Result = null;',
     '  return Result;',
     '};',
     'this.Jump = async function (w) {',
     '  var Result = 0;',
+    '  return Result;',
+    '};',
+    'this.Eat = async function (w) {',
+    '  var Result = null;',
     '  return Result;',
     '};',
     'this.Run = async function (d) {',
@@ -32497,22 +32533,25 @@ begin
     '  Result = await p;',
     '  Result = await $mod.Fly(3);',
     '  Result = await $mod.Jump(4);',
+    '  Result = await $mod.Jump(5);',
+    '  Result = await $mod.Eat(6);',
     '  return Result;',
     '};',
     '']),
     LinesToStr([
     ]));
+  CheckResolverUnexpectedHints();
 end;
 
 procedure TTestModule.TestAsync_AnonymousProc;
 begin
   StartProgram(false);
   Add([
+  '{$mode objfpc}',
   '{$modeswitch externalclass}',
   'type',
   '  TJSPromise = class external name ''Promise''',
   '  end;',
-  '{$mode objfpc}',
   'type',
   '  TFunc = reference to function(x: double): word; async;',
   'function Crawl(d: double = 1.3): word; async;',
@@ -32544,6 +32583,7 @@ begin
     '$mod.Func = async function (c) {',
     '};',
     '']));
+  CheckResolverUnexpectedHints();
 end;
 
 procedure TTestModule.TestAsync_ProcType;
@@ -32560,6 +32600,11 @@ begin
   'end;',
   'procedure Run(e:longint); async;',
   'begin',
+  'end;',
+  'procedure Fly(p: TProc); async;',
+  'begin',
+  '  await(p);',
+  '  await(p());',
   'end;',
   'var',
   '  RefFunc: TRefFunc;',
@@ -32581,6 +32626,7 @@ begin
   '  if Proc=ProcB then ;',
   '  ']);
   ConvertProgram;
+  CheckResolverUnexpectedHints();
   CheckSource('TestAsync_ProcType',
     LinesToStr([ // statements
     'this.Crawl = async function (d) {',
@@ -32588,6 +32634,10 @@ begin
     '  return Result;',
     '};',
     'this.Run = async function (e) {',
+    '};',
+    'this.Fly = async function (p) {',
+    '  await p(7);',
+    '  await p(7);',
     '};',
     'this.RefFunc = null;',
     'this.Func = null;',
@@ -32650,7 +32700,7 @@ begin
   'function TObject.Run(w: word = 3): word; async;',
   'begin',
   'end;',
-  'function TBird.Run(w: word = 3): word; async;',
+  'function TBird.Run(w: word = 3): word;', // async modifier not needed in impl
   'var p: TJSPromise;',
   'begin',
   '  p:=inherited;',
@@ -32697,6 +32747,54 @@ begin
     '']),
     LinesToStr([
     '']));
+  CheckResolverUnexpectedHints();
+end;
+
+procedure TTestModule.TestAsync_ClassInterface;
+begin
+  StartProgram(false);
+  Add([
+  '{$mode objfpc}',
+  '{$modeswitch externalclass}',
+  'type',
+  '  TJSPromise = class external name ''Promise''',
+  '  end;',
+  '  IUnknown = interface',
+  '    function _AddRef: longint;',
+  '    function _Release: longint;',
+  '  end;',
+  'function Run: IUnknown; async;',
+  'begin',
+  'end;',
+  'procedure Fly;',
+  'var p: TJSPromise;',
+  'begin',
+  '  Run;',
+  '  Run();',
+  '  p:=Run;',
+  '  p:=Run();',
+  'end;',
+  'begin',
+  '  ']);
+  ConvertProgram;
+  CheckSource('TestAsync_ClassInterface',
+    LinesToStr([ // statements
+    'rtl.createInterface(this, "IUnknown", "{D7ADB0E1-758A-322B-BDDF-21CD521DDFA9}", ["_AddRef", "_Release"], null);',
+    'this.Run = async function () {',
+    '  var Result = null;',
+    '  return Result;',
+    '};',
+    'this.Fly = function () {',
+    '  var p = null;',
+    '  $mod.Run();',
+    '  $mod.Run();',
+    '  p = $mod.Run();',
+    '  p = $mod.Run();',
+    '};',
+    '']),
+    LinesToStr([
+    '']));
+  CheckResolverUnexpectedHints();
 end;
 
 

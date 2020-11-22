@@ -4849,7 +4849,9 @@ begin
     begin
     Bin:=TBinaryExpr(El);
     if Bin.OpCode=eopSubIdent then
-      El:=Bin.right;
+      El:=Bin.right
+    else
+      exit(nil);
     end;
   if (El is TPrimitiveExpr) and (TPrimitiveExpr(El).Kind=pekIdent) then
     Result:=El;
@@ -9465,7 +9467,7 @@ begin
       RaiseIncompatibleType(20170216151734,nResultTypeMismatchExpectedButFound,
         [],DeclResult,ImplResult,ImplProc);
 
-    if ImplProc.IsAsync<>DeclProc.IsAsync then
+    if ImplProc.IsAsync and not DeclProc.IsAsync then
       RaiseMsg(20200524111856,nXModifierMismatchY,sXModifierMismatchY,['procedure type','async'],ImplProc);
     end;
 

@@ -262,7 +262,8 @@ const
   PCUDefaultTargetPlatform = PlatformBrowser;
   PCUTargetPlatformNames: array[TPasToJsPlatform] of string = (
     'Browser',
-    'NodeJS'
+    'NodeJS',
+    'Electron'
     );
 
   PCUDefaultTargetProcessor = ProcessorECMAScript5;
@@ -279,7 +280,9 @@ const
     'Published',
     'Automated',
     'StrictPrivate',
-    'StrictProtected'
+    'StrictProtected',
+    'Required',
+    'Optional'
     );
 
   PCUMemberHintNames: array[TPasMemberHint] of string = (
@@ -439,7 +442,8 @@ const
     'Static',
     'Varargs',
     'ReferenceTo',
-    'Async'
+    'Async',
+    'Far'
     );
 
   PCUProcedureMessageTypeNames: array[TProcedureMessageType] of string = (
@@ -481,7 +485,8 @@ const
     'LogicalXor',
     'RightShift',
     'Enumerator',
-    'In'
+    'In',
+    'Initialize'
     );
 
   PCUProcedureModifierNames: array[TProcedureModifier] of string = (
@@ -3970,6 +3975,7 @@ var
   Templ: TPasGenericTemplateType;
   TemplObj: TJSONObject;
 begin
+  if Parent=nil then ;
   if (GenericTemplateTypes=nil) or (GenericTemplateTypes.Count=0) then exit;
   Arr:=TJSONArray.Create;
   Obj.Add('GenericTemplateTypes',Arr);

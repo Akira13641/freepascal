@@ -2142,9 +2142,11 @@ begin
                  begin
                    init_settings.globalswitches:=init_settings.globalswitches+[cs_asm_extern,cs_link_extern,cs_link_nolink];
                    if more='h' then
-                     init_settings.globalswitches:=init_settings.globalswitches-[cs_link_on_target]
+                     init_settings.globalswitches:=init_settings.globalswitches-[cs_link_on_target,cs_assemble_on_target]
                    else if more='t' then
-                     init_settings.globalswitches:=init_settings.globalswitches+[cs_link_on_target]
+                     init_settings.globalswitches:=init_settings.globalswitches+[cs_link_on_target,cs_assemble_on_target]
+                   else if more='T' then
+                     init_settings.globalswitches:=init_settings.globalswitches+[cs_link_on_target]-[cs_asm_extern]
                    else if more='r' then
                      init_settings.globalswitches:=init_settings.globalswitches+[cs_asm_leave,cs_no_regalloc]
                    else if more<>'' then
@@ -3415,6 +3417,11 @@ begin
       not LinkerSetExplicitly then
      include(init_settings.globalswitches,cs_link_vlink);
 {$endif}
+{$ifdef m68k}
+   if (target_info.system in [system_m68k_sinclairql]) and
+      not LinkerSetExplicitly then
+     include(init_settings.globalswitches,cs_link_vlink);
+{$endif m68k}
 end;
 
 procedure TOption.checkoptionscompatibility;
@@ -4309,6 +4316,14 @@ begin
 {$endif cpufpemu}
 
 {$ifdef i386}
+  if target_info.system in systems_i386_default_486 then
+    begin
+      { Avoid use of MMX/CMOVcc instructions on older systems.
+        Some systems might not handle these instructions correctly,
+        Used emulators might also be problematic. PM }
+      if not option.CPUSetExplicitly then
+        init_settings.cputype:=cpu_486;
+    end;
   case target_info.system of
     system_i386_android:
       begin

@@ -965,8 +965,7 @@ implementation
            while (localsize>0) do
             begin
 {$ifndef i8086}
-              if (CPUX86_HAS_CMOV in cpu_capabilities[current_settings.cputype])
-                 {$ifdef i386} and not (target_info.system in systems_i386_no_cmov_align) {$endif} then
+              if (CPUX86_HAS_CMOV in cpu_capabilities[current_settings.cputype]) then
                 begin
                   for j:=low(alignarray_cmovcpus) to high(alignarray_cmovcpus) do
                    if (localsize>=length(alignarray_cmovcpus[j])) then
@@ -4785,6 +4784,16 @@ implementation
                 R_SUBQ,
                 R_SUBMMWHOLE:
                   result:=taicpu.op_ref_reg(A_VMOVQ,S_NO,tmpref,r);
+                R_SUBMMY:
+                   if ref.alignment>=32 then
+                     result:=taicpu.op_ref_reg(A_VMOVDQA,S_NO,tmpref,r)
+                   else
+                     result:=taicpu.op_ref_reg(A_VMOVDQU,S_NO,tmpref,r);
+                R_SUBMMZ:
+                   if ref.alignment>=64 then
+                     result:=taicpu.op_ref_reg(A_VMOVDQA64,S_NO,tmpref,r)
+                   else
+                     result:=taicpu.op_ref_reg(A_VMOVDQU64,S_NO,tmpref,r);
                 R_SUBMMX:
                   result:=taicpu.op_ref_reg(A_VMOVDQU,S_NO,tmpref,r);
                 else
@@ -4844,6 +4853,16 @@ implementation
                   result:=taicpu.op_reg_ref(A_VMOVSD,S_NO,r,tmpref);
                 R_SUBMMS:
                   result:=taicpu.op_reg_ref(A_VMOVSS,S_NO,r,tmpref);
+                R_SUBMMY:
+                   if ref.alignment>=32 then
+                     result:=taicpu.op_reg_ref(A_VMOVDQA,S_NO,r,tmpref)
+                   else
+                     result:=taicpu.op_reg_ref(A_VMOVDQU,S_NO,r,tmpref);
+                R_SUBMMZ:
+                   if ref.alignment>=64 then
+                     result:=taicpu.op_reg_ref(A_VMOVDQA64,S_NO,r,tmpref)
+                   else
+                     result:=taicpu.op_reg_ref(A_VMOVDQU64,S_NO,r,tmpref);
                 R_SUBQ,
                 R_SUBMMWHOLE:
                   result:=taicpu.op_reg_ref(A_VMOVQ,S_NO,r,tmpref);
