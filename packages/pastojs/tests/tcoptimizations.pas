@@ -59,8 +59,10 @@ type
     // unit optimization: jsshortrefglobals
     procedure TestOptShortRefGlobals_Program;
     procedure TestOptShortRefGlobals_Unit_FromIntfImpl_ToIntfImpl;
+    procedure TestOptShortRefGlobals_Enums;
     procedure TestOptShortRefGlobals_Property;
     procedure TestOptShortRefGlobals_ExternalAbstract;
+    procedure TestOptShortRefGlobals_Class;
     procedure TestOptShortRefGlobals_GenericFunction;
     procedure TestOptShortRefGlobals_GenericMethod_Call;
     procedure TestOptShortRefGlobals_GenericStaticMethod_Call;
@@ -71,6 +73,7 @@ type
     procedure TestOptShortRefGlobals_SameUnit_EnumType;
     procedure TestOptShortRefGlobals_SameUnit_ClassType;
     procedure TestOptShortRefGlobals_SameUnit_RecordType;
+    procedure TestOptShortRefGlobals_Unit_InitNoImpl;
 
     // Whole Program Optimization
     procedure TestWPO_OmitLocalVar;
@@ -412,6 +415,77 @@ begin
     '']));
 end;
 
+procedure TTestOptimizations.TestOptShortRefGlobals_Enums;
+begin
+  AddModuleWithIntfImplSrc('UnitA.pas',
+  LinesToStr([
+    'type',
+    '  TColor = (red,green,blue);',
+    '',
+    '']),
+  LinesToStr([
+    '']));
+  AddModuleWithIntfImplSrc('UnitB.pas',
+  LinesToStr([
+    'type',
+    '  TSize = (small,big);',
+    '',
+    '']),
+  LinesToStr([
+    '']));
+  StartUnit(true,[supWriteln]);
+  Add([
+  '{$optimization JSShortRefGlobals}',
+  'interface',
+  'uses unita;',
+  'const',
+  '  ColorRed = TColor.Red;',
+  'procedure Fly;',
+  'implementation',
+  'uses unitb;',
+  'const',
+  '  SizeSmall = TSize.Small;',
+  'procedure Fly;',
+  'begin',
+  '  writeln(ColorRed);',
+  '  writeln(TColor.Blue);',
+  '  writeln(SizeSmall);',
+  '  writeln(TSize.Big);',
+  '  writeln(unitb.TSize.Big);',
+  'end;',
+  '']);
+  ConvertUnit;
+  CheckSource('TestOptShortRefGlobals_Enums',
+    LinesToStr([
+    'var $impl = $mod.$impl;',
+    'var $lm = pas.UnitA;',
+    'var $lt = $lm.TColor;',
+    'var $lt1 = $lt.red;',
+    'var $lt2 = $lt.blue;',
+    'var $lm1 = null;',
+    'var $lt3 = null;',
+    'var $lt4 = null;',
+    'var $lt5 = null;',
+    'this.ColorRed = $lt1;',
+    'this.Fly = function () {',
+    '  console.log($lt1);',
+    '  console.log($lt2);',
+    '  console.log($lt4);',
+    '  console.log($lt5);',
+    '  console.log($lt5);',
+    '};',
+    '']),
+    LinesToStr([
+    '']),
+    LinesToStr([
+    '$lm1 = pas.UnitB;',
+    '$lt3 = $lm1.TSize;',
+    '$lt4 = $lt3.small;',
+    '$lt5 = $lt3.big;',
+    '$impl.SizeSmall = $lt4;',
+    '']));
+end;
+
 procedure TTestOptimizations.TestOptShortRefGlobals_Property;
 begin
   AddModuleWithIntfImplSrc('UnitA.pas',
@@ -542,6 +616,77 @@ begin
     '    this.$class.JumpVirtual(22);',
     '    this.Running(105);',
     '    this.Running(23);',
+    '  };',
+    '});',
+    '']),
+    LinesToStr([
+    '']),
+    LinesToStr([
+    '']));
+end;
+
+procedure TTestOptimizations.TestOptShortRefGlobals_Class;
+begin
+  AddModuleWithIntfImplSrc('UnitA.pas',
+  LinesToStr([
+    'type',
+    '  TBird = class',
+    '  end;',
+    '']),
+  LinesToStr([
+    '']));
+  StartUnit(true,[supTObject]);
+  Add([
+  '{$optimization JSShortRefGlobals}',
+  'interface',
+  'uses unita;',
+  'type',
+  '  TEagle = class(TBird)',
+  '    Size: TBird;',
+  '    class var Color: TBird;',
+  '    procedure Fly;',
+  '    class procedure Run;',
+  '  end;',
+  'implementation',
+  'procedure TEagle.Fly;',
+  'begin',
+  '  Size:=Size;',
+  '  Self.Size:=Self.Size;',
+  '  Color:=Color;',
+  '  Self.Color:=Self.Color;',
+  'end;',
+  'class procedure TEagle.Run;',
+  'begin',
+  '  Color:=Color;',
+  '  Self.Color:=Self.Color;',
+  'end;',
+  '']);
+  ConvertUnit;
+  CheckSource('TestOptShortRefGlobals_Class',
+    LinesToStr([
+    'var $lt = null;',
+    'var $lm = pas.UnitA;',
+    'var $lt1 = $lm.TBird;',
+    'rtl.createClass(this, "TEagle", $lt1, function () {',
+    '  $lt = this;',
+    '  this.Color = null;',
+    '  this.$init = function () {',
+    '    $lt1.$init.call(this);',
+    '    this.Size = null;',
+    '  };',
+    '  this.$final = function () {',
+    '    this.Size = undefined;',
+    '    $lt1.$final.call(this);',
+    '  };',
+    '  this.Fly = function () {',
+    '    this.Size = this.Size;',
+    '    this.Size = this.Size;',
+    '    $lt.Color = this.Color;',
+    '    $lt.Color = this.Color;',
+    '  };',
+    '  this.Run = function () {',
+    '    $lt.Color = this.Color;',
+    '    $lt.Color = this.Color;',
     '  };',
     '});',
     '']),
@@ -1351,7 +1496,7 @@ begin
     'var $lt2 = null;',
     'rtl.recNewT(this, "TAnt", function () {',
     '  $lt = this;',
-    '  rtl.recNewT($lt, "TLeg", function () {',
+    '  rtl.recNewT(this, "TLeg", function () {',
     '    $lt1 = this;',
     '    this.l = 0;',
     '    this.$eq = function (b) {',
@@ -1410,6 +1555,43 @@ begin
     '    return this;',
     '  };',
     '});',
+    '']));
+end;
+
+procedure TTestOptimizations.TestOptShortRefGlobals_Unit_InitNoImpl;
+begin
+  AddModuleWithIntfImplSrc('UnitA.pas',
+  LinesToStr([
+    'var a: word;',
+    'procedure Run(w: word);',
+    '']),
+  LinesToStr([
+    'procedure Run(w: word);',
+    'begin',
+    'end;',
+    '']));
+  StartUnit(true,[supTObject]);
+  Add([
+  '{$optimization JSShortRefGlobals}',
+  'interface',
+  'implementation',
+  'uses UnitA;', // empty implementation function
+  'begin',
+  '  Run(a);',
+  '']);
+  ConvertUnit;
+  CheckSource('TestOptShortRefGlobals_Unit_InitNoImpl',
+    LinesToStr([
+    'var $impl = $mod.$impl;',
+    'var $lm = null;',
+    'var $lp = null;',
+    '']),
+    LinesToStr([
+    '$lp($lm.a);',
+    '']),
+    LinesToStr([
+    '$lm = pas.UnitA;',
+    '$lp = $lm.Run;',
     '']));
 end;
 
@@ -2287,19 +2469,22 @@ var
 begin
   WithTypeInfo:=true;
   StartProgram(true);
-  Add('type');
-  Add('  TArrA = array of char;');
-  Add('  TArrB = array of string;');
-  Add('  TObject = class');
-  Add('  public');
-  Add('    PublicA: TArrA;');
-  Add('  published');
-  Add('    PublishedB: TArrB;');
-  Add('  end;');
-  Add('var');
-  Add('  C: TObject;');
-  Add('begin');
-  Add('  C.PublicA:=nil;');
+  Add([
+  'type',
+  '  TArrA = array of char;',
+  '  TArrB = array of string;',
+  '  TObject = class',
+  '  public',
+  '    PublicA: TArrA;',
+  '  published',
+  '    PublishedB: TArrB;',
+  '  end;',
+  'var',
+  '  C: TObject;',
+  'begin',
+  '  C.PublicA:=nil;',
+  '  if typeinfo(TObject)=nil then ;',
+  '']);
   ConvertProgram;
   ActualSrc:=ConvertJSModuleToString(JSModule);
   ExpectedSrc:=LinesToStr([
@@ -2323,6 +2508,7 @@ begin
     '  this.C = null;',
     '  $mod.$main = function () {',
     '    $mod.C.PublicA = [];',
+    '    if ($mod.$rtti["TObject"] === null) ;',
     '  };',
     '});',
     '']);

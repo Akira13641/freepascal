@@ -206,7 +206,7 @@ Function AsmRegisterPara(sym: tabstractnormalvarsym): boolean;
 
   Procedure ConcatLabel(p: TAsmList;var l : tasmlabel);
   Procedure ConcatConstant(p : TAsmList;value: tcgint; constsize:byte);
-  Procedure ConcatConstSymbol(p : TAsmList;const sym:string;symtyp:tasmsymtype;l:tcgint;constsize:byte;isofs:boolean);
+  Procedure ConcatConstSymbol(p : TAsmList;const sym,endsym:string;symtyp:tasmsymtype;l:tcgint;constsize:byte;isofs:boolean);
   Procedure ConcatRealConstant(p : TAsmList;value: bestreal; real_typ : tfloattype);
   Procedure ConcatString(p : TAsmList;s:string);
   procedure ConcatAlign(p:TAsmList;l:tcgint);
@@ -1795,13 +1795,8 @@ end;
 
 Procedure ConcatConstant(p: TAsmList; value: tcgint; constsize:byte);
 {*********************************************************************}
-{ PROCEDURE ConcatConstant(value: aint; maxvalue: aint);        }
 {  Description: This routine adds the value constant to the current   }
 {  instruction linked list.                                           }
-{   maxvalue -> indicates the size of the data to initialize:         }
-{                  $ff -> create a byte node.                         }
-{                  $ffff -> create a word node.                       }
-{                  $ffffffff -> create a dword node.                  }
 {*********************************************************************}
 var
   rangelo,rangehi : int64;
@@ -1841,7 +1836,7 @@ Begin
 end;
 
 
-  Procedure ConcatConstSymbol(p : TAsmList;const sym:string;symtyp:tasmsymtype;l:tcgint;constsize:byte;isofs:boolean);
+  Procedure ConcatConstSymbol(p : TAsmList;const sym,endsym:string;symtyp:tasmsymtype;l:tcgint;constsize:byte;isofs:boolean);
   begin
 {$ifdef i8086}
     { 'DW xx' as well as 'DW OFFSET xx' are just near pointers }

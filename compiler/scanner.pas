@@ -234,6 +234,7 @@ interface
           procedure skipoldtpcomment(read_first_char:boolean);
           procedure readtoken(allowrecordtoken:boolean);
           function  readpreproc:ttoken;
+          function  readpreprocint(var value:int64;const place:string):boolean;
           function  asmgetchar:char;
        end;
 
@@ -282,7 +283,6 @@ interface
     Function SetCompileMode(const s:string; changeInit: boolean):boolean;
     Function SetCompileModeSwitch(s:string; changeInit: boolean):boolean;
     procedure SetAppType(NewAppType:tapptype);
-
 
 implementation
 
@@ -970,6 +970,7 @@ type
     function evaluate(v:texprvalue;op:ttoken):texprvalue;
     procedure error(expecteddef, place: string);
     function isBoolean: Boolean;
+    function isInt: Boolean;
     function asBool: Boolean;
     function asInt: Integer;
     function asInt64: Int64;
@@ -1408,6 +1409,11 @@ type
           i:=asInt64;
           result:=(i=0)or(i=1);
         end;
+    end;
+
+  function texprvalue.isInt: Boolean;
+    begin
+      result:=is_integer(def);
     end;
 
   function texprvalue.asBool: Boolean;
@@ -5977,6 +5983,25 @@ exit_label:
                readpreproc:=NOTOKEN;
              end;
          end;
+      end;
+
+
+    function tscannerfile.readpreprocint(var value:int64;const place:string):boolean;
+      var
+        hs : texprvalue;
+      begin
+        hs:=preproc_comp_expr;
+        if hs.isInt then
+          begin
+            value:=hs.asInt64;
+            result:=true;
+          end
+        else
+          begin
+            hs.error('Integer',place);
+            result:=false;
+          end;
+        hs.free;
       end;
 
 

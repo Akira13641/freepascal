@@ -393,7 +393,7 @@ type
     destructor Destroy; override;
     Function CreatePCUSupport: TPCUSupport; virtual;
     function GetInitialModeSwitches: TModeSwitches;
-    function IsUnitReadFromPCU: Boolean;
+    function IsUnitReadFromPCU: Boolean; // unit was read from pcu
     function GetInitialBoolSwitches: TBoolSwitches;
     function GetInitialConverterOptions: TPasToJsConverterOptions;
     procedure CreateScannerAndParser(aFileResolver: TPas2jsFSResolver);
@@ -595,13 +595,13 @@ type
     function CreateMacroEngine: TPas2jsMacroEngine;virtual;
     function CreateSrcMap(const aFileName: String): TPas2JSSrcMap; virtual;
     function CreateOptimizer: TPas2JSAnalyzer;
-    // These are mandatory !
-    function CreateSetOfCompilerFiles(keyType: TKeyCompareType): TPasAnalyzerKeySet; virtual; abstract;
-    function CreateFS: TPas2JSFS; virtual; abstract;
+    function CreateSetOfCompilerFiles(keyType: TKeyCompareType): TPasAnalyzerKeySet; virtual; abstract;// mandatory !
+    function CreateFS: TPas2JSFS; virtual; abstract; // mandatory !
     function FormatPath(Const aPath: String): String;
     function FullFormatPath(Const aPath: String): String;
     procedure WritePrecompiledFormats; virtual;
     procedure WriteHelpLine(S: String);
+    function LoadFile(Filename: string; Binary: boolean = false): TPas2jsFile;
     // Override these for PCU format
     function CreateCompilerFile(const PasFileName, PCUFilename: String): TPas2jsCompilerFile; virtual;
     // Command-line option handling
@@ -1053,7 +1053,7 @@ begin
 
   if coEnumValuesAsNumbers in Compiler.Options then
     Include(Result,fppas2js.coEnumNumbers);
-  if coShortRefGlobals in Compiler.Options then
+  if (coShortRefGlobals in Compiler.Options) or IsUnitReadFromPCU then
     Include(Result,fppas2js.coShortRefGlobals);
 
   if coLowerCase in Compiler.Options then
@@ -2219,7 +2219,6 @@ begin
 end;
 
 function TPas2jsCompiler.CreateOptimizer: TPas2JSAnalyzer;
-
 begin
   Result:=TPas2JSAnalyzer.Create;
 end;
@@ -2293,7 +2292,7 @@ begin
     if SrcMapInclude and FS.FileExists(LocalFilename) then
     begin
       // include source in SrcMap
-      aFile:=FS.LoadFile(LocalFilename);
+      aFile:=LoadFile(LocalFilename);
       SrcMap.SourceContents[i]:=aFile.Source;
     end;
     // translate local file name
@@ -2351,7 +2350,6 @@ begin
 end;
 
 function TPas2jsCompiler.CreateSrcMap(const aFileName: String): TPas2JSSrcMap;
-
 begin
   Result:=TPas2JSSrcMap.Create(aFileName);
 end;
@@ -2763,10 +2761,9 @@ procedure TPas2jsCompiler.WriteSingleJSFile(aFile: TPas2jsCompilerFile; Combined
   end;
 
 Var
-  aFileWriter : TPas2JSMapper;
-  isSingleFile : Boolean;
-  ResFileName,MapFilename : String;
-
+  aFileWriter: TPas2JSMapper;
+  isSingleFile, JSFileWritten: Boolean;
+  ResFileName,MapFilename: String;
 begin
   aFileWriter:=CombinedFileWriter;
   try
@@ -2788,8 +2785,6 @@ begin
     FResources.DoneUnit(aFile.isMainFile);
     EmitJavaScript(aFile,aFileWriter);
 
-
-
     if aFile.IsMainFile and (TargetPlatform=PlatformNodeJS) then
       aFileWriter.WriteFile('rtl.run();'+LineEnding,aFile.UnitFilename);
 
@@ -2799,8 +2794,7 @@ begin
         PostProcessorSupport.CallPostProcessors(aFile.JSFilename,aFileWriter);
 
       // Give chance to descendants to write file
-      if DoWriteJSFile(aFile.JSFilename,aFileWriter) then
-        exit;// descendant has written -> finished
+      JSFileWritten:=DoWriteJSFile(aFile.JSFilename,aFileWriter);
 
       if (aFile.JSFilename='') and (MainJSFile='.') then
         WriteToStandardOutput(aFileWriter);
@@ -2811,7 +2805,8 @@ begin
       CheckOutputDir(aFileWriter.DestFileName);
 
       MapFilename:=aFileWriter.DestFilename+'.map';
-      WriteJSToFile(MapFileName,aFileWriter);
+      if not JSFileWritten then
+        WriteJSToFile(MapFileName,aFileWriter);
       if (FResourceStringFile=rsfUnit) or (aFile.IsMainFile and (FResourceStringFile<>rsfNone)) then
         if FResourceStrings.StringsCount>0 then
           WriteResourceStrings(ChangeFileExt(aFileWriter.DestFileName,'.jrs'));
@@ -3767,7 +3762,7 @@ begin
      'enumnumbers': SetOption(coEnumValuesAsNumbers,Enable);
      'removenotusedprivates': SetOption(coKeepNotUsedPrivates,not Enable);
      'removenotuseddeclarations': SetOption(coKeepNotUsedDeclarationsWPO,not Enable);
-     'shortrefglobals': SetOption(coShortRefGlobals,not Enable);
+     'shortrefglobals': SetOption(coShortRefGlobals,Enable);
     else
       Log.LogMsgIgnoreFilter(nUnknownOptimizationOption,[QuoteStr(aValue)]);
     end;
@@ -4193,19 +4188,16 @@ begin
 end;
 
 function TPas2jsCompiler.CreateMacroEngine: TPas2jsMacroEngine;
-
 begin
   Result:=TPas2jsMacroEngine.Create;
 end;
 
 function TPas2jsCompiler.CreateLog: TPas2jsLogger;
-
 begin
   Result:=TPas2jsLogger.Create;
 end;
 
 constructor TPas2jsCompiler.Create;
-
 begin
   FOptions:=DefaultP2jsCompilerOptions;
   FConverterGlobals:=TPasToJSConverterGlobals.Create(Self);
@@ -4556,6 +4548,7 @@ begin
     on E: Exception do begin
       if ShowDebug then
         Log.LogExceptionBackTrace(E);
+      Log.Log(mtFatal,E.Message);
       raise; // reraise unexpected exception
     end else begin
       if ShowDebug then
@@ -4634,6 +4627,20 @@ begin
     end;
   end;
   Log.LogRaw(s);
+end;
+
+function TPas2jsCompiler.LoadFile(Filename: string; Binary: boolean
+  ): TPas2jsFile;
+begin
+  try
+    Result:=FS.LoadFile(Filename,Binary);
+  except
+    on E: Exception do
+      begin
+      Log.Log(mtError,E.Message);
+      Terminate(ExitCodeFileNotFound);
+      end
+  end;
 end;
 
 procedure TPas2jsCompiler.WriteHelp;
@@ -5157,7 +5164,7 @@ begin
         Log.LogMsg(nCustomJSFileNotFound,[InsertFilenames[i]]);
         raise EFileNotFoundError.Create('');
       end;
-      aFile:=FS.LoadFile(Filename);
+      aFile:=LoadFile(Filename);
       if aFile.Source='' then continue;
       aWriter.WriteFile(aFile.Source,Filename);
     end
