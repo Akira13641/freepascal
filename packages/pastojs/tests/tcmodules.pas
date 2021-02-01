@@ -125,6 +125,7 @@ type
     FModules: TObjectList;// list of TTestEnginePasResolver
     FParser: TTestPasParser;
     FPasProgram: TPasProgram;
+    FPasLibrary: TPasLibrary;
     FHintMsgs: TObjectList; // list of TTestHintMessage
     FHintMsgsGood: TFPList; // list of TTestHintMessage marked as expected
     FJSRegModuleCall: TJSCallExpression;
@@ -157,6 +158,7 @@ type
     procedure ParseModuleQueue; virtual;
     procedure ParseModule; virtual;
     procedure ParseProgram; virtual;
+    procedure ParseLibrary; virtual;
     procedure ParseUnit; virtual;
   protected
     function FindModuleWithFilename(aFilename: string): TTestEnginePasResolver; virtual;
@@ -166,9 +168,11 @@ type
       ImplementationSrc: string): TTestEnginePasResolver; virtual;
     procedure AddSystemUnit(Parts: TSystemUnitParts = []); virtual;
     procedure StartProgram(NeedSystemUnit: boolean; SystemUnitParts: TSystemUnitParts = []); virtual;
+    procedure StartLibrary(NeedSystemUnit: boolean; SystemUnitParts: TSystemUnitParts = []); virtual;
     procedure StartUnit(NeedSystemUnit: boolean; SystemUnitParts: TSystemUnitParts = []); virtual;
     procedure ConvertModule; virtual;
     procedure ConvertProgram; virtual;
+    procedure ConvertLibrary; virtual;
     procedure ConvertUnit; virtual;
     function ConvertJSModuleToString(El: TJSElement): string; virtual;
     procedure CheckDottedIdentifier(Msg: string; El: TJSElement; DottedName: string);
@@ -196,6 +200,7 @@ type
     function GetResolver(const Filename: string): TTestEnginePasResolver;
     function GetDefaultNamespace: string;
     property PasProgram: TPasProgram Read FPasProgram;
+    property PasLibrary: TPasLibrary Read FPasLibrary;
     property Resolvers[Index: integer]: TTestEnginePasResolver read GetResolvers;
     property ResolverCount: integer read GetResolverCount;
     property Engine: TTestEnginePasResolver read FEngine;
@@ -332,6 +337,7 @@ type
     Procedure TestProc_External;
     Procedure TestProc_ExternalOtherUnit;
     Procedure TestProc_Asm;
+    Procedure TestProc_AsmSubBlock;
     Procedure TestProc_Assembler;
     Procedure TestProc_VarParam;
     Procedure TestProc_VarParamString;
@@ -883,13 +889,23 @@ type
     Procedure TestAwait_NonPromiseWithTypeFail;
     Procedure TestAwait_AsyncCallTypeMismatch;
     Procedure TestAWait_OutsideAsyncFail;
-    Procedure TestAWait_Result;
+    Procedure TestAWait_IntegerFail;
     Procedure TestAWait_ExternalClassPromise;
+    Procedure TestAWait_JSValue;
+    Procedure TestAWait_Result;
+    Procedure TestAWait_ResultPromiseMissingTypeFail; // await(AsyncCallResultPromise) needs T
     Procedure TestAsync_AnonymousProc;
     Procedure TestAsync_ProcType;
     Procedure TestAsync_ProcTypeAsyncModMismatchFail;
     Procedure TestAsync_Inherited;
     Procedure TestAsync_ClassInterface;
+    Procedure TestAsync_ClassInterface_AsyncMissmatchFail;
+
+    // Library
+    Procedure TestLibrary_Empty;
+    Procedure TestLibrary_ExportFunc; // ToDo
+    // ToDo: test delayed specialization init
+    // ToDO: analyzer
   end;
 
 function LinesToStr(Args: array of const): string;
@@ -1583,6 +1599,22 @@ begin
       FFirstPasStatement:=TPasImplBlock(PasProgram.InitializationSection.Elements[0]);
 end;
 
+procedure TCustomTestModule.ParseLibrary;
+var
+  Init: TInitializationSection;
+begin
+  if SkipTests then exit;
+  ParseModule;
+  if SkipTests then exit;
+  AssertEquals('Has library',TPasLibrary,Module.ClassType);
+  FPasLibrary:=TPasLibrary(Module);
+  AssertNotNull('Has library section',PasLibrary.LibrarySection);
+  Init:=PasLibrary.InitializationSection;
+  if (Init<>nil) and (Init.Elements.Count>0) then
+    if TObject(Init.Elements[0]) is TPasImplBlock then
+      FFirstPasStatement:=TPasImplBlock(PasLibrary.InitializationSection.Elements[0]);
+end;
+
 procedure TCustomTestModule.ParseUnit;
 begin
   if SkipTests then exit;
@@ -1865,6 +1897,17 @@ begin
   Add('');
 end;
 
+procedure TCustomTestModule.StartLibrary(NeedSystemUnit: boolean;
+  SystemUnitParts: TSystemUnitParts);
+begin
+  if NeedSystemUnit then
+    AddSystemUnit(SystemUnitParts)
+  else
+    Parser.ImplicitUses.Clear;
+  Add('library '+ExtractFileUnitName(Filename)+';');
+  Add('');
+end;
+
 procedure TCustomTestModule.StartUnit(NeedSystemUnit: boolean;
   SystemUnitParts: TSystemUnitParts);
 begin
@@ -1970,6 +2013,8 @@ begin
   AssertEquals('module name param is string',ord(jstString),ord(ModuleNameExpr.Value.ValueType));
   if Module is TPasProgram then
     AssertEquals('module name','program',String(ModuleNameExpr.Value.AsString))
+  else if Module is TPasLibrary then
+    AssertEquals('module name','library',String(ModuleNameExpr.Value.AsString))
   else
     AssertEquals('module name',Module.Name,String(ModuleNameExpr.Value.AsString));
 
@@ -1986,7 +2031,7 @@ begin
   CheckFunctionParam('module intf-function',Arg,FJSModuleSrc);
 
   // search for $mod.$init or $mod.$main - the last statement
-  if Module is TPasProgram then
+  if (Module is TPasProgram) or (Module is TPasLibrary) then
     begin
     InitName:='$main';
     AssertEquals('$mod.'+InitName+' function 1',true,JSModuleSrc.Statements.Count>0);
@@ -2005,7 +2050,7 @@ begin
         InitFunction:=InitAssign.Expr as TJSFunctionDeclarationStatement;
         FJSInitBody:=InitFunction.AFunction.Body as TJSFunctionBody;
         end
-      else if Module is TPasProgram then
+      else if (Module is TPasProgram) or (Module is TPasLibrary) then
         CheckDottedIdentifier('init function',InitAssign.LHS,'$mod.'+InitName);
       end;
     end;
@@ -2021,6 +2066,13 @@ procedure TCustomTestModule.ConvertProgram;
 begin
   Add('end.');
   ParseProgram;
+  ConvertModule;
+end;
+
+procedure TCustomTestModule.ConvertLibrary;
+begin
+  Add('end.');
+  ParseLibrary;
   ConvertModule;
 end;
 
@@ -2085,7 +2137,7 @@ begin
   // program main or unit initialization
   if (Module is TPasProgram) or (Trim(InitStatements)<>'') then
     begin
-    if Module is TPasProgram then
+    if (Module is TPasProgram) or (Module is TPasLibrary) then
       InitName:='$main'
     else
       InitName:='$init';
@@ -4081,6 +4133,65 @@ begin
     '};',
     'this.Fly = function () {',
     '  return;',
+    '};',
+    '']),
+    LinesToStr([
+    ''
+    ]));
+end;
+
+procedure TTestModule.TestProc_AsmSubBlock;
+begin
+  StartProgram(true,[supTObject]);
+  Add([
+  '{$mode delphi}',
+  'type',
+  '  TBird = class end;',
+  'procedure Run(w: word);',
+  'begin;',
+  '  if true then asm console.log(); end;',
+  '  if w>3 then asm',
+  '    var a = w+1;',
+  '    w = a+3;',
+  '  end;',
+  '  while (w>7) do asm',
+  '    w+=3; w*=2;',
+  '  end;',
+  '  try',
+  '  except',
+  '    on E: TBird do',
+  '      asm console.log(E); end;',
+  '    on E: TObject do',
+  '      asm var i=3; i--; end;',
+  '    else asm Fly; High; end;',
+  '  end;',
+  'end;',
+  'begin']);
+  ConvertProgram;
+  CheckSource('TestProc_AsmSubBlock',
+    LinesToStr([ // statements
+    'rtl.createClass(this, "TBird", pas.system.TObject, function () {',
+    '});',
+    'this.Run = function (w) {',
+    '  if (true) console.log();',
+    '  if (w > 3) {',
+    '    var a = w+1;',
+    '    w = a+3;',
+    '  };',
+    '  while (w > 7) {',
+    '    w+=3; w*=2;',
+    '  };',
+    '  try {} catch ($e) {',
+    '    if ($mod.TBird.isPrototypeOf($e)) {',
+    '      var E = $e;',
+    '      console.log(E);',
+    '    } else if (pas.system.TObject.isPrototypeOf($e)) {',
+    '      var E = $e;',
+    '      var i=3; i--;',
+    '    } else {',
+    '      Fly; High;',
+    '    }',
+    '  };',
     '};',
     '']),
     LinesToStr([
@@ -7071,7 +7182,9 @@ begin
   'begin',
   '  i:=i2;',
   '  i:=default(TMyInt);',
-  '  if i=i2 then ;']);
+  '  if i=i2 then ;',
+  '  i:=ord(i2);',
+  '']);
   ConvertProgram;
   CheckSource('TestIntegerRange',
     LinesToStr([
@@ -7092,6 +7205,7 @@ begin
     '$mod.i = $mod.i2;',
     '$mod.i = -1;',
     'if ($mod.i === $mod.i2) ;',
+    '$mod.i = $mod.i2;',
     '']));
 end;
 
@@ -7206,6 +7320,7 @@ begin
   '  i:=system.high(i);',
   '  i:=system.pred(i);',
   '  i:=system.succ(i);',
+  '  i:=system.ord(i);',
   '']);
   ConvertProgram;
   CheckResolverUnexpectedHints;
@@ -7222,6 +7337,7 @@ begin
     '$mod.i = 255;',
     '$mod.i = $mod.i - 1;',
     '$mod.i = $mod.i + 1;',
+    '$mod.i = $mod.i;',
     '']));
 end;
 
@@ -12288,12 +12404,20 @@ begin
   'type',
   '  TPoint = record',
   '    x,y: longint;',
+  '    class procedure Run(w: longint = 13); static;',
   '    constructor Create(ax: longint; ay: longint = -1);',
   '  end;',
+  'class procedure tpoint.run(w: longint);',
+  'begin',
+  '   run;',
+  '   run();',
+  'end;',
   'constructor tpoint.create(ax,ay: longint);',
   'begin',
   '  x:=ax;',
   '  self.y:=ay;',
+  ' run;',
+  '  run(ax);',
   'end;',
   'var r: TPoint;',
   'begin',
@@ -12316,12 +12440,18 @@ begin
     '    this.y = s.y;',
     '    return this;',
     '  };',
+    '  this.Run = function (w) {',
+    '    $mod.TPoint.Run(13);',
+    '    $mod.TPoint.Run(13);',
+    '  };',
     '  this.Create = function (ax, ay) {',
     '    this.x = ax;',
     '    this.y = ay;',
+    '    this.Run(13);',
+    '    this.Run(ax);',
     '    return this;',
     '  };',
-    '}, true);',
+    '});',
     'this.r = this.TPoint.$new();',
     '']),
     LinesToStr([ // $mod.$main
@@ -23237,7 +23367,7 @@ begin
     '    $mod.THelper.$new("NewHlp", [3]);',
     '    return this;',
     '  };',
-    '}, true);',
+    '});',
     'rtl.createHelper(this, "THelper", null, function () {',
     '  this.NewHlp = function (w) {',
     '    this.Create(2);',
@@ -32618,48 +32748,21 @@ begin
   ConvertProgram;
 end;
 
-procedure TTestModule.TestAWait_Result;
+procedure TTestModule.TestAWait_IntegerFail;
 begin
   StartProgram(false);
   Add([
-  '{$modeswitch externalclass}',
-  'type',
-  '  TJSPromise = class external name ''Promise''',
-  '  end;',
-  'function Crawl(d: double = 1.3): word; ',
+  'function Run: word;',
   'begin',
   'end;',
-  'function Run(d: double = 1.6): word; async;',
+  'procedure Fly(w: word); async;',
   'begin',
-  '  Result:=await(1);',
-  '  Result:=await(Crawl);',
-  '  Result:=await(Crawl(4.5));',
-  '  Result:=await(Run);',
-  '  Result:=await(Run(6.7));',
+  '  await(Run());',
   'end;',
   'begin',
-  '  Run(1);']);
+  '  Fly(1);']);
+  SetExpectedPasResolverError('async function expected, but Result:Word found',nXExpectedButYFound);
   ConvertProgram;
-  CheckSource('TestAWait_Result',
-    LinesToStr([ // statements
-    'this.Crawl = function (d) {',
-    '  var Result = 0;',
-    '  return Result;',
-    '};',
-    'this.Run = async function (d) {',
-    '  var Result = 0;',
-    '  Result = await 1;',
-    '  Result = await $mod.Crawl(1.3);',
-    '  Result = await $mod.Crawl(4.5);',
-    '  Result = await $mod.Run(1.6);',
-    '  Result = await $mod.Run(6.7);',
-    '  return Result;',
-    '};',
-    '']),
-    LinesToStr([
-    '$mod.Run(1);'
-    ]));
-  SetExpectedPasResolverError('Await without promise',nAwaitWithoutPromise);
 end;
 
 procedure TTestModule.TestAWait_ExternalClassPromise;
@@ -32669,6 +32772,8 @@ begin
   '{$modeswitch externalclass}',
   'type',
   '  TJSPromise = class external name ''Promise''',
+  '  end;',
+  '  TJSThenable = class external name ''Thenable''',
   '  end;',
   'function Fly(w: word): TJSPromise;',
   'begin',
@@ -32720,6 +32825,110 @@ begin
     LinesToStr([
     ]));
   CheckResolverUnexpectedHints();
+end;
+
+procedure TTestModule.TestAWait_JSValue;
+begin
+  StartProgram(false);
+  Add([
+  '{$modeswitch externalclass}',
+  'type',
+  '  TJSPromise = class external name ''Promise''',
+  '  end;',
+  'function Fly(w: word): jsvalue; async;',
+  'begin',
+  'end;',
+  'function Run(d: jsvalue; var e): word; async;',
+  'begin',
+  '  Result:=await(word,d);', // promise needs type
+  '  d:=await(Fly(4));', // async non promise must omit the type
+  '  Result:=await(word,e);', // promise needs type
+  'end;',
+  'begin',
+  '']);
+  ConvertProgram;
+  CheckSource('TestAWait_JSValue',
+    LinesToStr([ // statements
+    'this.Fly = async function (w) {',
+    '  var Result = undefined;',
+    '  return Result;',
+    '};',
+    'this.Run = async function (d, e) {',
+    '  var Result = 0;',
+    '  Result = await d;',
+    '  d = await $mod.Fly(4);',
+    '  Result = await e.get();',
+    '  return Result;',
+    '};',
+    '']),
+    LinesToStr([
+    ]));
+  CheckResolverUnexpectedHints();
+end;
+
+procedure TTestModule.TestAWait_Result;
+begin
+  StartProgram(false);
+  Add([
+  '{$modeswitch externalclass}',
+  'type',
+  '  TJSPromise = class external name ''Promise''',
+  '  end;',
+  'function Crawl(d: double = 1.3): TJSPromise; ',
+  'begin',
+  'end;',
+  'function Run(d: double = 1.6): word; async;',
+  'begin',
+  '  Result:=await(word,Crawl);',
+  '  Result:=await(word,Crawl(4.5));',
+  '  Result:=await(Run);',
+  '  Result:=await(Run(6.7));',
+  'end;',
+  'begin',
+  '  Run(1);']);
+  ConvertProgram;
+  CheckSource('TestAWait_Result',
+    LinesToStr([ // statements
+    'this.Crawl = function (d) {',
+    '  var Result = null;',
+    '  return Result;',
+    '};',
+    'this.Run = async function (d) {',
+    '  var Result = 0;',
+    '  Result = await $mod.Crawl(1.3);',
+    '  Result = await $mod.Crawl(4.5);',
+    '  Result = await $mod.Run(1.6);',
+    '  Result = await $mod.Run(6.7);',
+    '  return Result;',
+    '};',
+    '']),
+    LinesToStr([
+    '$mod.Run(1);'
+    ]));
+  CheckResolverUnexpectedHints();
+end;
+
+procedure TTestModule.TestAWait_ResultPromiseMissingTypeFail;
+begin
+  StartProgram(false);
+  Add([
+  '{$mode objfpc}',
+  '{$modeswitch externalclass}',
+  'type',
+  '  TJSPromise = class external name ''Promise''',
+  '  end;',
+  'function Run: TJSPromise; async;',
+  'begin',
+  'end;',
+  'procedure Fly(w: word); async;',
+  'begin',
+  '  await(Run());',
+  'end;',
+  'begin',
+  '  Fly(1);']);
+  SetExpectedPasResolverError('Wrong number of parameters specified for call to "function await(aType,TJSPromise):aType"',
+    nWrongNumberOfParametersForCallTo);
+  ConvertProgram;
 end;
 
 procedure TTestModule.TestAsync_AnonymousProc;
@@ -32942,8 +33151,18 @@ begin
   '    function _AddRef: longint;',
   '    function _Release: longint;',
   '  end;',
+  'function Say(i: IUnknown): IUnknown; async;',
+  'begin',
+  'end;',
   'function Run: IUnknown; async;',
   'begin',
+  '  Result:=await(Run);',
+  '  Result:=await(Run());',
+  '  Result:=await(Run) as IUnknown;',
+  '  Result:=await(Say(nil));',
+  '  Result:=await(Say(await(Run())));',
+  '  Result:=await(Say(await(Run()) as IUnknown));',
+  '  Result:=await(Say(await(Run()) as IUnknown)) as IUnknown;',
   'end;',
   'procedure Fly;',
   'var p: TJSPromise;',
@@ -32959,8 +33178,25 @@ begin
   CheckSource('TestAsync_ClassInterface',
     LinesToStr([ // statements
     'rtl.createInterface(this, "IUnknown", "{D7ADB0E1-758A-322B-BDDF-21CD521DDFA9}", ["_AddRef", "_Release"], null);',
+    'this.Say = async function (i) {',
+    '  var Result = null;',
+    '  return Result;',
+    '};',
     'this.Run = async function () {',
     '  var Result = null;',
+    '  var $ok = false;',
+    '  try {',
+    '    Result = rtl.setIntfL(Result, await $mod.Run());',
+    '    Result = rtl.setIntfL(Result, await $mod.Run());',
+    '    Result = rtl.setIntfL(Result, rtl.intfAsIntfT(await $mod.Run(), $mod.IUnknown));',
+    '    Result = rtl.setIntfL(Result, await $mod.Say(null));',
+    '    Result = rtl.setIntfL(Result, await $mod.Say(await $mod.Run()));',
+    '    Result = rtl.setIntfL(Result, await $mod.Say(rtl.intfAsIntfT(await $mod.Run(), $mod.IUnknown)));',
+    '    Result = rtl.setIntfL(Result, rtl.intfAsIntfT(await $mod.Say(rtl.intfAsIntfT(await $mod.Run(), $mod.IUnknown)), $mod.IUnknown));',
+    '    $ok = true;',
+    '  } finally {',
+    '    if (!$ok) rtl._Release(Result);',
+    '  };',
     '  return Result;',
     '};',
     'this.Fly = function () {',
@@ -32976,6 +33212,65 @@ begin
   CheckResolverUnexpectedHints();
 end;
 
+procedure TTestModule.TestAsync_ClassInterface_AsyncMissmatchFail;
+begin
+  StartProgram(true,[supTInterfacedObject]);
+  Add([
+  '{$mode objfpc}',
+  '{$modeswitch externalclass}',
+  'type',
+  '  TJSPromise = class external name ''Promise''',
+  '  end;',
+  '  IBird = interface',
+  '    procedure Run;',
+  '  end;',
+  '  TBird = class(TInterfacedObject,IBird)',
+  '    procedure Run; async;',
+  '  end;',
+  'procedure TBird.Run;',
+  'begin',
+  'end;',
+  'begin',
+  '  ']);
+  SetExpectedPasResolverError('procedure type modifier "async" mismatch',nXModifierMismatchY);
+  ConvertProgram;
+end;
+
+procedure TTestModule.TestLibrary_Empty;
+begin
+  StartLibrary(false);
+  Add([
+  '']);
+  ConvertLibrary;
+  CheckSource('TestLibrary_Empty',
+    LinesToStr([ // statements
+    '']),
+    LinesToStr([
+    '']));
+  CheckResolverUnexpectedHints();
+end;
+
+procedure TTestModule.TestLibrary_ExportFunc;
+begin
+  exit;
+
+  StartLibrary(false);
+  Add([
+  'procedure Run(w: word);',
+  'begin',
+  'end;',
+  'exports',
+  '  Run,',
+  '  run name ''Foo'';',
+  '']);
+  ConvertLibrary;
+  CheckSource('TestLibrary_ExportFunc',
+    LinesToStr([ // statements
+    '']),
+    LinesToStr([
+    '']));
+  CheckResolverUnexpectedHints();
+end;
 
 Initialization
   RegisterTests([TTestModule]);
