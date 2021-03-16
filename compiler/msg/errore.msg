@@ -2087,6 +2087,9 @@ type_e_generic_const_type_not_allowed=04128_E_Type not allowed for generic const
 type_e_cant_read_write_type_in_iso_mode=04129_E_Can't read or write variables of this type in iso mode
 % You are trying to \var{read} or \var{write} a variable from or to a
 % file of type text, which doesn't support that variable's type in the selected language mode (iso mode).
+type_w_array_size_does_not_match_size_of_constant_string=04130_W_The length of the constant string (length is $1) must be equal to the number of array elements ($2 elements)
+% ISO Pascal requires that string constants have the same length as the array to which them they are assigned.
+%
 % \end{description}
 #
 # Symtable
@@ -2587,7 +2590,7 @@ cg_w_interrupt_does_not_save_registers=06062_W_The target CPU does not support p
 #
 # Assembler reader
 #
-# 07144 is the last used one
+# 07145 is the last used one
 #
 asmr_d_start_reading=07000_DL_Starting $1 styled assembler parsing
 % This informs you that an assembler block is being parsed
@@ -2929,6 +2932,8 @@ asmr_w_segment_override_ignored_in_64bit_mode=07141_W_Segment base $1 will be ge
 asmr_e_mismatch_broadcasting_elements=07142_E_Mismatch broadcasting elements (expected: {$1} found: {$2})
 asmr_e_invalid_arrangement=07143_E_Invalid arrangement specifier "$1"
 asmr_e_a64_invalid_regset=07144_E_Registers in a register set must be consecutive.
+asmr_e_unknown_field=07145_E_Unknown field identifier
+% The internal assembler read cannot find the passed field identifier.
 #
 # Assembler/binary writers
 #
@@ -3429,7 +3434,7 @@ unit_u_ppu_llvm_mismatch=10067_U_Skipping unit, PPU and compiler have to be both
 #
 #  Options
 #
-# 11062 is the last used one
+# 11063 is the last used one
 #
 option_usage=11000_O_$1 [options] <inputfile> [options]
 # BeginOfTeX
@@ -3586,6 +3591,8 @@ option_features_only_for_system_unit=11060_E_Feature switches are only supported
 % system unit through the ppu of the system unit.
 option_debug_info_requires_external_linker=11061_N_The selected debug format is not supported by the internal linker, switching to external linking
 option_valgrind_heaptrc_mismatch=11062_E_You can not use both options ($1) ($2) at same time.
+option_unsupported_fpu=11063_F_The selected FPU type "$1" is not supported by the selected instruction set "$2"
+% Not all instruction sets support all FPU types. For example on ARM, Thumb(-1) supports no FPU/VFP instruction set
 %\end{description}
 # EndOfTeX
 
@@ -4234,6 +4241,9 @@ x*2Tlinux_Linux
 Z*2Tembedded_Embedded
 Z*2Tzxspectrum_ZX Spectrum
 Z*2Tmsxdos_MSX-DOS
+# wasm32 targets
+W*2Tembedded_Embedded
+W*2Twasi_The WebAssembly System Interface (WASI)
 # end of targets section
 **1u<x>_Undefines the symbol <x>
 **1U_Unit options:

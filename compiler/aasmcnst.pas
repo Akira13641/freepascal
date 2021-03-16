@@ -427,6 +427,10 @@ type
      function queue_subscriptn_multiple_by_name(def: tabstractrecorddef; const fields: array of TIDString): tdef;
      { queue a type conversion operation }
      procedure queue_typeconvn(fromdef, todef: tdef); virtual;
+     { queue a add operation }
+     procedure queue_addn(def: tdef; const index: tconstexprint); virtual;
+     { queue a sub operation }
+     procedure queue_subn(def: tdef; const index: tconstexprint); virtual;
      { finalise the queue (so a new one can be created) and flush the
         previously queued operations, applying them in reverse order on a...}
      { ... procdef }
@@ -1161,7 +1165,7 @@ implementation
    class function ttai_typedconstbuilder.get_string_symofs(typ: tstringtype; winlikewidestring: boolean): pint;
      begin
        { darwin's linker does not support negative offsets }
-       if not(target_info.system in systems_darwin) and
+       if not(target_info.system in systems_darwin+systems_wasm) and
           { it seems that clang's assembler has a bug with the ADRP instruction... }
           (target_info.system<>system_aarch64_win64) then
          result:=0
@@ -1580,7 +1584,9 @@ implementation
 
    class function ttai_typedconstbuilder.is_smartlink_vectorized_dead_strip: boolean;
      begin
-       result:=tf_smartlink_sections in target_info.flags;
+       result:=(tf_smartlink_sections in target_info.flags) and
+               (not(target_info.system in systems_darwin) or
+                (tf_supports_symbolorderfile in target_info.flags));
      end;
 
 
@@ -2077,6 +2083,18 @@ implementation
          inc(fqueue_offset,elelen*v.svalue)
        else
          message3(type_e_range_check_error_bounds,tostr(index),tostr(vecbase),tostr(high(fqueue_offset)-fqueue_offset div elelen+vecbase))
+     end;
+
+
+   procedure ttai_typedconstbuilder.queue_addn(def: tdef; const index: tconstexprint);
+     begin
+       inc(fqueue_offset,def.size*int64(index));
+     end;
+
+
+   procedure ttai_typedconstbuilder.queue_subn(def: tdef; const index: tconstexprint);
+     begin
+       dec(fqueue_offset,def.size*int64(index));
      end;
 
 

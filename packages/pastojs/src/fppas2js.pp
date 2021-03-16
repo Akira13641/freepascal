@@ -2159,7 +2159,7 @@ type
       AContext: TConvertContext): TJSElement; virtual;
     Function CreateRTTIMemberProperty(Members: TFPList; Index: integer;
       AContext: TConvertContext): TJSElement; virtual;
-    Procedure CreateRTTIAnonymous(El: TPasType; AContext: TConvertContext); virtual;
+    Procedure CreateRTTIAnonymous(El: TPasType; AContext: TConvertContext); virtual; // needed by precompiled files from 2.0.0
     Function CreateRTTIMembers(El: TPasMembersType; Src: TJSSourceElements;
       FuncContext: TFunctionContext; MembersSrc: TJSSourceElements;
       MembersFuncContext: TFunctionContext; RTTIExpr: TJSElement;
@@ -6878,20 +6878,22 @@ function TPas2JSResolver.IsTGUID(TypeEl: TPasRecordType): boolean;
 var
   Members: TFPList;
   El: TPasElement;
+  MemberIndex, i: Integer;
 begin
   Result:=false;
   if not SameText(TypeEl.Name,'TGUID') then exit;
   Members:=TypeEl.Members;
-  if Members.Count<4 then exit;
-  El:=TPasElement(Members[0]);
-  if not SameText(El.Name,'D1') then exit;
-  El:=TPasElement(Members[1]);
-  if not SameText(El.Name,'D2') then exit;
-  El:=TPasElement(Members[2]);
-  if not SameText(El.Name,'D3') then exit;
-  El:=TPasElement(Members[3]);
-  if not SameText(El.Name,'D4') then exit;
-  Result:=true;
+  i:=1;
+  for MemberIndex:=0 to Members.Count-1 do
+    begin
+    El:=TPasElement(Members[MemberIndex]);
+    if (El.ClassType<>TPasVariable) then continue;
+    if SameText(El.Name,'D'+IntToStr(i)) then
+      begin
+      if i=4 then exit(true);
+      inc(i);
+      end;
+    end;
 end;
 
 function TPas2JSResolver.GetAssignGUIDString(TypeEl: TPasRecordType;
@@ -8181,7 +8183,7 @@ Var
   HasImplUsesClause, ok, NeedRTLCheckVersion: Boolean;
   Prg: TPasProgram;
   Lib: TPasLibrary;
-  AssignSt: TJSSimpleAssignStatement;
+  ImplFuncAssignSt: TJSSimpleAssignStatement;
   IntfSecCtx: TInterfaceSectionContext;
   ModScope: TPas2JSModuleScope;
 begin
@@ -8288,10 +8290,10 @@ begin
 
       ImplFunc:=CreateImplementationSection(El,IntfSecCtx);
       // add $mod.$implcode = ImplFunc;
-      AssignSt:=TJSSimpleAssignStatement(CreateElement(TJSSimpleAssignStatement,El));
-      AssignSt.LHS:=CreateMemberExpression([ModVarName,GetBIName(pbivnImplCode)]);
-      AssignSt.Expr:=ImplFunc;
-      AddToSourceElements(Src,AssignSt);
+      ImplFuncAssignSt:=TJSSimpleAssignStatement(CreateElement(TJSSimpleAssignStatement,El));
+      ImplFuncAssignSt.LHS:=CreateMemberExpression([ModVarName,GetBIName(pbivnImplCode)]);
+      ImplFuncAssignSt.Expr:=ImplFunc;
+      AddToSourceElements(Src,ImplFuncAssignSt);
 
       // append initialization section
       CreateInitSection(El,Src,IntfSecCtx);
@@ -8303,7 +8305,7 @@ begin
         // remove unneeded $impl from interface
         RemoveFromSourceElements(Src,ImplVarSt);
         // remove unneeded $mod.$implcode = function(){}
-        RemoveFromSourceElements(Src,AssignSt);
+        RemoveFromSourceElements(Src,ImplFuncAssignSt);
         HasImplUsesClause:=(El.ImplementationSection<>nil)
                        and (length(El.ImplementationSection.UsesClause)>0);
         end
@@ -9790,15 +9792,12 @@ begin
   if RightRefDecl is TPasProcedure then
     begin
     Proc:=TPasProcedure(RightRefDecl);
-    if coShortRefGlobals in Options then
+    if not aResolver.ProcHasSelf(Proc) then
       begin
-      if not aResolver.ProcHasSelf(Proc) then
-        begin
-        // a.StaticProc  ->  $lp(defaultargs)
-        // ToDo: check if left side has only types (no call nor field)
-        Result:=ConvertIdentifierExpr(RightEl,TPrimitiveExpr(RightEl).Value,aContext);
-        exit;
-        end;
+      // a.StaticProc  ->  pas.unit1.aclass.StaticProc(defaultargs)
+      // ToDo: check if left side has only types (no call nor field)
+      Result:=ConvertIdentifierExpr(RightEl,TPrimitiveExpr(RightEl).Value,aContext);
+      exit;
       end;
     end;
 
@@ -15581,11 +15580,11 @@ begin
     RaiseNotSupported(El,AContext,20170927183645);
   if El.Parent is TProcedureBody then
     RaiseNotSupported(El,AContext,20181231004355);
+  if not aResolver.IsFullySpecialized(El) then exit;
   if El.IsForward then
     exit(ConvertClassForwardType(El,AContext))
   else if El.IsExternal then
     exit(ConvertExtClassType(El,AContext));
-  if not aResolver.IsFullySpecialized(El) then exit;
 
   if El.CustomData is TPas2JSClassScope then
     begin
@@ -19996,7 +19995,7 @@ begin
   if (VarType<>nil) and (VarType.Name='') then
     begin
     if not VarTypeInfoAlreadyCreated(VarType) then
-      CreateRTTIAnonymous(VarType,AContext);
+      CreateRTTIAnonymous(VarType,AContext); // only needed by precompiled files from 2.0.0
     end;
 
   JSTypeInfo:=CreateTypeInfoRef(VarType,AContext,V);
@@ -20573,34 +20572,51 @@ function TPasToJSConverter.CreateGUIDObjLit(aTGUIDRecord: TPasRecordType;
   const GUID: TGUID; PosEl: TPasElement; AContext: TConvertContext
   ): TJSObjectLiteral;
 var
+  i: integer;
   Members: TFPList;
+
+  function GetMember(const aName: string): TPasElement;
+  begin
+    while i<Members.Count do
+      begin
+      Result:=TPasElement(Members[i]);
+      inc(i);
+      if (Result is TPasVariable) then
+        if SameText(Result.Name,aName) then
+          exit
+        else
+          RaiseInconsistency(20180415094721,PosEl);
+      end;
+    RaiseInconsistency(20210306223031,PosEl);
+  end;
+
+var
   PropEl: TJSObjectLiteralElement;
   MemberEl: TPasElement;
   ArrLit: TJSArrayLiteral;
-  i: Integer;
 begin
   Members:=aTGUIDRecord.Members;
   Result:=TJSObjectLiteral(CreateElement(TJSObjectLiteral,PosEl));
+  i:=0;
+
   // D1: 0x12345678
+  MemberEl:=GetMember('D1');
   PropEl:=Result.Elements.AddElement;
-  MemberEl:=TPasElement(Members[0]);
-  if not SameText(MemberEl.Name,'D1') then
-    RaiseInconsistency(20180415094721,PosEl);
   PropEl.Name:=TJSString(TransformElToJSName(MemberEl,AContext));
   PropEl.Expr:=CreateLiteralHexNumber(PosEl,GUID.D1,8);
   // D2: 0x1234
+  MemberEl:=GetMember('D2');
   PropEl:=Result.Elements.AddElement;
-  MemberEl:=TPasElement(Members[1]);
   PropEl.Name:=TJSString(TransformElToJSName(MemberEl,AContext));
   PropEl.Expr:=CreateLiteralHexNumber(PosEl,GUID.D2,4);
   // D3: 0x1234
+  MemberEl:=GetMember('D3');
   PropEl:=Result.Elements.AddElement;
-  MemberEl:=TPasElement(Members[2]);
   PropEl.Name:=TJSString(TransformElToJSName(MemberEl,AContext));
   PropEl.Expr:=CreateLiteralHexNumber(PosEl,GUID.D3,4);
   // D4: [0x12,0x12,0x12,0x12,0x12,0x12,0x12,0x12]
+  MemberEl:=GetMember('D4');
   PropEl:=Result.Elements.AddElement;
-  MemberEl:=TPasElement(Members[3]);
   PropEl.Name:=TJSString(TransformElToJSName(MemberEl,AContext));
   ArrLit:=TJSArrayLiteral(CreateElement(TJSArrayLiteral,PosEl));
   PropEl.Expr:=ArrLit;
@@ -27062,8 +27078,8 @@ begin
   for i:=0 to ElRefList.Count-1 do
     begin
     El:=TPasElement(ElRefList[i]);
-    if ElNeedsGlobalAlias(El) then
-      CreateGlobalElPath(El,SectionContext);
+    // Note: they are all needed by precompiled code, do not check ElNeedsGlobalAlias
+    CreateGlobalElPath(El,SectionContext);
     end;
 end;
 
