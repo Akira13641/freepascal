@@ -146,7 +146,7 @@ general_t_unitscope=01027_T_Using unit scope: $1
 #
 # Scanner
 #
-# 02200 is the last used one
+# 02110 is the last used one
 #
 % \section{Scanner messages.}
 % This section lists the messages that the scanner emits. The scanner takes
@@ -439,7 +439,7 @@ scan_e_trimcount_out_of_range=02108_E_The value of MULTILINESTRINGTRIMLEFT canno
 % MULTILINESTRINGTRIMLEFT is stored in a "word" field, and thus is restricted to the range 0..65535.
 scan_e_illegal_directive=02109_E_Illegal compiler directive "$1"
 % You have specified a compiler directive that cannot (for one of several possible reasons) currently be used.
-scan_f_unterminated_multiline_string=02200_F_Unterminated multi-line string beginning at line $1, column $2.
+scan_f_unterminated_multiline_string=02110_F_Unterminated multi-line string beginning at line $1, column $2.
 % The file contains an "unbalanced" number of multi-line string denoting backtick characters.
 % \end{description}
 #
