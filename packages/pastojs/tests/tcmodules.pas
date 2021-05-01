@@ -406,6 +406,7 @@ type
     Procedure TestLoHiDelphiMode;
     Procedure TestAssignments;
     Procedure TestArithmeticOperators1;
+    Procedure TestMultiAdd;
     Procedure TestLogicalOperators;
     Procedure TestBitwiseOperators;
     Procedure TestBitwiseOperatorsLongword;
@@ -828,6 +829,7 @@ type
     Procedure TestRTTI_Class_PropertyParams;
     Procedure TestRTTI_Class_OtherUnit_TypeAlias;
     Procedure TestRTTI_Class_OmitRTTI;
+    Procedure TestRTTI_Class_Field_AnonymousArrayOfSelfClass;
     Procedure TestRTTI_IndexModifier;
     Procedure TestRTTI_StoredModifier;
     Procedure TestRTTI_DefaultValue;
@@ -3306,6 +3308,45 @@ begin
     '$mod.vB = $mod.vA;',
     'if ($mod.vA < $mod.vB){ $mod.vC = $mod.vA } else $mod.vC = $mod.vB;'
     ]));
+end;
+
+procedure TTestModule.TestMultiAdd;
+begin
+  StartProgram(false);
+  Add([
+  'function Fly: string; external name ''fly'';',
+  'function TryEncodeDate(Year, Month, Day: Word): Boolean;',
+  'var',
+  '  Date: double;',
+  'begin',
+  '  Result:=(Year>0) and (Year<10000) and',
+  '          (Month >= 1) and (Month<=12) and',
+  '          (Day>0) and (Day<=31);',
+  '  Date := (146097*Year) SHR 2 + (1461*Year) SHR 2 + (153*LongWord(Month)+2) DIV 5 + LongWord(Day);',
+  'end;',
+  'var s: string;',
+  'begin',
+  '  s:=''a''+''b''+''c''+''d'';',
+  '  s:=s+Fly+''e'';',
+  '  s:=Fly+Fly+Fly;',
+  '']);
+  ConvertProgram;
+  CheckSource('TestMultiAdd',
+    LinesToStr([ // statements
+    'this.TryEncodeDate = function (Year, Month, Day) {',
+    '  var Result = false;',
+    '  var date = 0.0;',
+    '  Result = (Year > 0) && (Year < 10000) && (Month >= 1) && (Month <= 12) && (Day > 0) && (Day <= 31);',
+    '  date = ((146097 * Year) >>> 2) + ((1461 * Year) >>> 2) + rtl.trunc(((153 * Month) + 2) / 5) + Day;',
+    '  return Result;',
+    '};',
+    'this.s = "";',
+    '']),
+    LinesToStr([ // this.$main
+    '$mod.s = "a" + "b" + "c" + "d";',
+    '$mod.s = $mod.s + fly() + "e";',
+    '$mod.s = fly() + fly() + fly();',
+    '']));
 end;
 
 procedure TTestModule.TestLogicalOperators;
@@ -10500,13 +10541,13 @@ begin
     'this.ArrArrInt = [];',
     '']),
     LinesToStr([ // $mod.$main
-    '$mod.ArrInt.splice(2, 0, 1);',
-    '$mod.ArrInt.splice(4, 0, $mod.ArrInt[3]);',
-    '$mod.ArrRec.splice(6, 0, $mod.ArrRec[5]);',
-    '$mod.ArrSet.splice(7, 0, $mod.ArrSet[7]);',
-    '$mod.ArrJSValue.splice(9, 0, $mod.ArrJSValue[8]);',
-    '$mod.ArrJSValue.splice(11, 0, 10);',
-    '$mod.ArrArrInt.splice(22, 0, [23]);',
+    '$mod.ArrInt = rtl.arrayInsert(1, $mod.ArrInt, 2);',
+    '$mod.ArrInt = rtl.arrayInsert($mod.ArrInt[3], $mod.ArrInt, 4);',
+    '$mod.ArrRec = rtl.arrayInsert($mod.ArrRec[5], $mod.ArrRec, 6);',
+    '$mod.ArrSet = rtl.arrayInsert($mod.ArrSet[7], $mod.ArrSet, 7);',
+    '$mod.ArrJSValue = rtl.arrayInsert($mod.ArrJSValue[8], $mod.ArrJSValue, 9);',
+    '$mod.ArrJSValue = rtl.arrayInsert(10, $mod.ArrJSValue, 11);',
+    '$mod.ArrArrInt = rtl.arrayInsert([23], $mod.ArrArrInt, 22);',
     '$mod.ArrInt.splice(12, 13);',
     '$mod.ArrRec.splice(14, 15);',
     '$mod.ArrSet.splice(17, 18);',
@@ -29215,20 +29256,20 @@ begin
   CheckSource('TestRTTI_ProcType',
     LinesToStr([ // statements
     'this.$rtti.$ProcVar("TProcA", {',
-    '  procsig: rtl.newTIProcSig(null)',
+    '  procsig: rtl.newTIProcSig([])',
     '});',
     'this.$rtti.$MethodVar("TMethodB", {',
-    '  procsig: rtl.newTIProcSig(null),',
+    '  procsig: rtl.newTIProcSig([]),',
     '  methodkind: 0',
     '});',
     'this.$rtti.$ProcVar("TProcC", {',
-    '  procsig: rtl.newTIProcSig(null, 2)',
+    '  procsig: rtl.newTIProcSig([], null, 2)',
     '});',
     'this.$rtti.$ProcVar("TProcD", {',
     '  procsig: rtl.newTIProcSig([["i", rtl.longint], ["j", rtl.string, 2], ["c", rtl.char, 1], ["d", rtl.double, 4]])',
     '});',
     'this.$rtti.$ProcVar("TProcE", {',
-    '  procsig: rtl.newTIProcSig(null, rtl.nativeint)',
+    '  procsig: rtl.newTIProcSig([], rtl.nativeint)',
     '});',
     'this.$rtti.$ProcVar("TProcF", {',
     '  procsig: rtl.newTIProcSig([["p", this.$rtti["TProcA"], 2]], rtl.nativeuint)',
@@ -29537,13 +29578,13 @@ begin
     '  this.Fly = function () {',
     '  };',
     '  var $r = this.$rtti;',
-    '  $r.addMethod("Fly", 0, null);',
+    '  $r.addMethod("Fly", 0, []);',
     '});',
     'rtl.createClass(this, "TEagle", this.TBird, function () {',
     '  this.Fly = function () {',
     '  };',
     '  var $r = this.$rtti;',
-    '  $r.addMethod("Fly", 0, null);',
+    '  $r.addMethod("Fly", 0, []);',
     '});',
     '']),
     LinesToStr([ // $mod.$main
@@ -29646,9 +29687,6 @@ begin
   CheckSource('TestRTTI_Class_Field',
     LinesToStr([ // statements
     'rtl.createClass(this, "TObject", null, function () {',
-    '  $mod.$rtti.$DynArray("TObject.ArrB$a", {',
-    '    eltype: rtl.byte',
-    '  });',
     '  this.$init = function () {',
     '    this.FPropA = "";',
     '    this.VarLI = 0;',
@@ -29680,6 +29718,9 @@ begin
     '  $r.addField("VarShI", rtl.shortint);',
     '  $r.addField("VarBy", rtl.byte);',
     '  $r.addField("VarExt", rtl.longint);',
+    '  $mod.$rtti.$DynArray("TObject.ArrB$a", {',
+    '    eltype: rtl.byte',
+    '  });',
     '  $r.addField("ArrA", $mod.$rtti["TObject.ArrB$a"]);',
     '  $r.addField("ArrB", $mod.$rtti["TObject.ArrB$a"]);',
     '});',
@@ -29697,17 +29738,19 @@ procedure TTestModule.TestRTTI_Class_Method;
 begin
   WithTypeInfo:=true;
   StartProgram(false);
-  Add('type');
-  Add('  TObject = class');
-  Add('  private');
-  Add('    procedure Internal; external name ''$intern'';');
-  Add('  published');
-  Add('    procedure Click; virtual; abstract;');
-  Add('    procedure Notify(Sender: TObject); virtual; abstract;');
-  Add('    function GetNotify: boolean; external name ''GetNotify'';');
-  Add('    procedure Println(a,b: longint); varargs; virtual; abstract;');
-  Add('  end;');
-  Add('begin');
+  Add([
+  'type',
+  '  TObject = class',
+  '  private',
+  '    procedure Internal; external name ''$intern'';',
+  '  published',
+  '    procedure Click; virtual; abstract;',
+  '    procedure Notify(Sender: TObject); virtual; abstract;',
+  '    function GetNotify: boolean; external name ''GetNotify'';',
+  '    procedure Println(a,b: longint); varargs; virtual; abstract;',
+  '    function Fetch(URL: string): word; async; external name ''Fetch'';',
+  '  end;',
+  'begin']);
   ConvertProgram;
   CheckSource('TestRTTI_Class_Method',
     LinesToStr([ // statements
@@ -29717,12 +29760,11 @@ begin
     '  this.$final = function () {',
     '  };',
     '  var $r = this.$rtti;',
-    '  $r.addMethod("Click", 0, null);',
+    '  $r.addMethod("Click", 0, []);',
     '  $r.addMethod("Notify", 0, [["Sender", $r]]);',
-    '  $r.addMethod("GetNotify", 1, null, rtl.boolean,{flags: 4});',
-    '  $r.addMethod("Println", 0, [["a", rtl.longint], ["b", rtl.longint]], null, {',
-    '    flags: 2',
-    '  });',
+    '  $r.addMethod("GetNotify", 1, [], rtl.boolean, 4);',
+    '  $r.addMethod("Println", 0, [["a", rtl.longint], ["b", rtl.longint]], null, 2);',
+    '  $r.addMethod("Fetch", 1, [["URL", rtl.string]], rtl.word, 20);',
     '});',
     '']),
     LinesToStr([ // $mod.$main
@@ -29943,6 +29985,43 @@ begin
     '  };',
     '  this.$final = function () {',
     '  };',
+    '});',
+    '']),
+    LinesToStr([ // $mod.$main
+    '']));
+end;
+
+procedure TTestModule.TestRTTI_Class_Field_AnonymousArrayOfSelfClass;
+begin
+  WithTypeInfo:=true;
+  StartUnit(true,[supTObject]);
+  Add([
+  'interface',
+  'type',
+  '  {$M+}',
+  '  TBird = class',
+  '  published',
+  '    Swarm: array of TBird;',
+  '  end;',
+  'implementation',
+  '']);
+  ConvertUnit;
+  CheckSource('TestRTTI_Class_Field_AnonymousArrayOfSelfClass',
+    LinesToStr([ // statements
+    'rtl.createClass(this, "TBird", pas.system.TObject, function () {',
+    '  this.$init = function () {',
+    '    pas.system.TObject.$init.call(this);',
+    '    this.Swarm = [];',
+    '  };',
+    '  this.$final = function () {',
+    '    this.Swarm = undefined;',
+    '    pas.system.TObject.$final.call(this);',
+    '  };',
+    '  var $r = this.$rtti;',
+    '  $mod.$rtti.$DynArray("TBird.Swarm$a", {',
+    '    eltype: $r',
+    '  });',
+    '  $r.addField("Swarm", $mod.$rtti["TBird.Swarm$a"]);',
     '});',
     '']),
     LinesToStr([ // $mod.$main
@@ -30429,7 +30508,7 @@ begin
     '  this.$final = function () {',
     '  };',
     '  var $r = this.$rtti;',
-    '  $r.addMethod("DoIt", 0, null);',
+    '  $r.addMethod("DoIt", 0, []);',
     '});',
     'rtl.createClass(this, "TSky", this.TObject, function () {',
     '  this.DoIt = function () {',
@@ -30471,14 +30550,14 @@ begin
     '  this.DoIt = function () {',
     '  };',
     '  var $r = this.$rtti;',
-    '  $r.addMethod("DoIt", 0, null);',
+    '  $r.addMethod("DoIt", 0, []);',
     '});',
     'rtl.createClass(this, "TSky", this.TObject, function () {',
     '  this.DoIt = function () {',
     '    $mod.TObject.DoIt.call(this);',
     '  };',
     '  var $r = this.$rtti;',
-    '  $r.addMethod("DoIt", 0, null);',
+    '  $r.addMethod("DoIt", 0, []);',
     '});',
     '']),
     LinesToStr([ // $mod.$main
@@ -30555,7 +30634,7 @@ begin
     '});',
     'this.$rtti.$Class("TBridge");',
     'this.$rtti.$ProcVar("TProc", {',
-    '  procsig: rtl.newTIProcSig(null, this.$rtti["TBridge"])',
+    '  procsig: rtl.newTIProcSig([], this.$rtti["TBridge"])',
     '});',
     'rtl.createClass(this, "TOger", this.TObject, function () {',
     '  this.$init = function () {',
@@ -30618,7 +30697,7 @@ begin
     '  instancetype: this.$rtti["TObject"]',
     '});',
     'this.$rtti.$ProcVar("TProcA", {',
-    '  procsig: rtl.newTIProcSig(null, this.$rtti["TClass"])',
+    '  procsig: rtl.newTIProcSig([], this.$rtti["TClass"])',
     '});',
     'rtl.createClass(this, "TObject", null, function () {',
     '  this.$init = function () {',
@@ -30714,9 +30793,6 @@ begin
   CheckSource('TestRTTI_Record',
     LinesToStr([ // statements
     'rtl.recNewT(this, "TFloatRec", function () {',
-    '  $mod.$rtti.$DynArray("TFloatRec.d$a", {',
-    '    eltype: rtl.char',
-    '  });',
     '  this.$new = function () {',
     '    var r = Object.create(this);',
     '    r.c = [];',
@@ -30732,6 +30808,9 @@ begin
     '    return this;',
     '  };',
     '  var $r = $mod.$rtti.$Record("TFloatRec", {});',
+    '  $mod.$rtti.$DynArray("TFloatRec.d$a", {',
+    '    eltype: rtl.char',
+    '  });',
     '  $r.addField("c", $mod.$rtti["TFloatRec.d$a"]);',
     '  $r.addField("d", $mod.$rtti["TFloatRec.d$a"]);',
     '});',
@@ -31091,10 +31170,10 @@ begin
     '  eltype: rtl.string',
     '});',
     'this.$rtti.$ProcVar("TProc", {',
-    '  procsig: rtl.newTIProcSig(null)',
+    '  procsig: rtl.newTIProcSig([])',
     '});',
     'this.$rtti.$MethodVar("TMethod", {',
-    '  procsig: rtl.newTIProcSig(null),',
+    '  procsig: rtl.newTIProcSig([]),',
     '  methodkind: 0',
     '});',
     'this.StaticArray = rtl.arraySetLength(null,"",2);',
@@ -31379,7 +31458,7 @@ begin
     '  null,',
     '  function () {',
     '    var $r = this.$rtti;',
-    '    $r.addMethod("GetItem", 1, null, rtl.longint);',
+    '    $r.addMethod("GetItem", 1, [], rtl.longint);',
     '    $r.addMethod("SetItem", 0, [["Value", rtl.longint]]);',
     '    $r.addProperty("Item", 3, rtl.longint, "GetItem", "SetItem");',
     '  }',
@@ -31446,8 +31525,8 @@ begin
     '    this.$kind = "com";',
     '    var $r = this.$rtti;',
     '    $r.addMethod("QueryInterface", 1, [["iid", $mod.$rtti["TGuid"], 2], ["obj", null, 4]], rtl.longint);',
-    '    $r.addMethod("_AddRef", 1, null, rtl.longint);',
-    '    $r.addMethod("_Release", 1, null, rtl.longint);',
+    '    $r.addMethod("_AddRef", 1, [], rtl.longint);',
+    '    $r.addMethod("_Release", 1, [], rtl.longint);',
     '  }',
     ');',
     'rtl.createInterface(',
@@ -31458,7 +31537,7 @@ begin
     '  this.IUnknown,',
     '  function () {',
     '    var $r = this.$rtti;',
-    '    $r.addMethod("GetItem", 1, null, rtl.longint);',
+    '    $r.addMethod("GetItem", 1, [], rtl.longint);',
     '    $r.addMethod("SetItem", 0, [["Value", rtl.longint]]);',
     '    $r.addProperty("Item", 3, rtl.longint, "GetItem", "SetItem");',
     '  }',
@@ -31510,7 +31589,7 @@ begin
     '    return Result;',
     '  };',
     '  var $r = this.$rtti;',
-    '  $r.addMethod("GetItem", 1, null, rtl.longint);',
+    '  $r.addMethod("GetItem", 1, [], rtl.longint);',
     '  $r.addProperty("Item", 1, rtl.longint, "GetItem", "");',
     '});',
     'this.t = null;',
@@ -31598,8 +31677,8 @@ begin
     '  pas.system.IUnknown,',
     '  function () {',
     '    var $r = this.$rtti;',
-    '    $r.addMethod("Swoop", 1, null, pas.unit2.$rtti["TWordArray"]);',
-    '    $r.addMethod("Glide", 1, null, pas.unit2.$rtti["TArray<System.Word>"]);',
+    '    $r.addMethod("Swoop", 1, [], pas.unit2.$rtti["TWordArray"]);',
+    '    $r.addMethod("Glide", 1, [], pas.unit2.$rtti["TArray<System.Word>"]);',
     '  }',
     ');',
     'this.Fly = function () {',
@@ -31804,7 +31883,7 @@ begin
     '      attr: [$mod.TCustomAttribute, "Create$1", [14]]',
     '    }',
     '  );',
-    '  $r.addMethod("Fly", 0, null, null, {',
+    '  $r.addMethod("Fly", 0, [], null, 0, {',
     '    attr: [$mod.TCustomAttribute, "Create$1", [15]]',
     '  });',
     '});',

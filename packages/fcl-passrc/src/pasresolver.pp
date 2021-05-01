@@ -1690,6 +1690,7 @@ type
     procedure FinishMethodImplHeader(ImplProc: TPasProcedure); virtual;
     procedure FinishExceptOnExpr; virtual;
     procedure FinishExceptOnStatement; virtual;
+    procedure FinishParserSpecializeType(El: TPasSpecializeType); virtual;
     procedure FinishWithDo(El: TPasImplWithDo); virtual;
     procedure FinishForLoopHeader(Loop: TPasImplForLoop); virtual;
     procedure FinishDeclaration(El: TPasElement); virtual;
@@ -2153,6 +2154,7 @@ type
     function PushHelperDotScope(HiType: TPasType): TPasDotBaseScope;
     function PushTemplateDotScope(TemplType: TPasGenericTemplateType; ErrorEl: TPasElement): TPasDotBaseScope;
     function PushDotScope(HiType: TPasType): TPasDotBaseScope;
+    function PushParserSpecializeType(SpecType: TPasSpecializeType): TPasDotBaseScope;
     function PushWithExprScope(Expr: TPasExpr): TPasWithExprScope;
     function StashScopes(NewScopeCnt: integer): integer; // returns old StashDepth
     function StashSubExprScopes: integer; // returns old StashDepth
@@ -2387,6 +2389,7 @@ type
       EvalLow: boolean; ErrorEl: TPasElement): TResEvalValue; virtual; // compute low() or high()
     function EvalTypeRange(Decl: TPasType; Flags: TResEvalFlags): TResEvalValue; virtual; // compute low() and high()
     function HasTypeInfo(El: TPasType): boolean; virtual;
+    function IsAnonymousElType(El: TPasType): boolean; virtual;
     function GetActualBaseType(bt: TResolverBaseType): TResolverBaseType; virtual;
     function GetCombinedBoolean(Bool1, Bool2: TResolverBaseType; ErrorEl: TPasElement): TResolverBaseType; virtual;
     function GetCombinedInt(const Int1, Int2: TPasResolverResult; ErrorEl: TPasElement): TResolverBaseType; virtual;
@@ -5237,6 +5240,9 @@ begin
       begin
       // El is the first element found -> raise error
       // ToDo: use the ( as error position
+      {$IFDEF VerbosePasResolver}
+      writeln('TPasResolver.OnFindCallElements El=',GetObjPath(El));
+      {$ENDIF}
       RaiseMsg(20170216151525,nIllegalQualifierAfter,sIllegalQualifierAfter,
         ['(',El.ElementTypeName],Data^.Params);
       end;
@@ -6236,15 +6242,26 @@ procedure TPasResolver.FinishSubElementType(Parent: TPasElement; El: TPasType);
     {$IFDEF CheckPasTreeRefCount};const aId: string{$ENDIF});
   var
     i: Integer;
-    p: TPasElement;
+    p, Prev: TPasElement;
   begin
     p:=El.Parent;
     if NewParent=p.Parent then
       begin
-      // e.g. a:array of longint; -> insert a$a in front of a
+      // e.g. m,n:array of longint; -> insert n$a in front of m
       i:=List.Count-1;
       while (i>=0) and (List[i]<>Pointer(p)) do
         dec(i);
+      if P is TPasVariable then
+        begin
+        while (i>0) do
+          begin
+          Prev:=TPasElement(List[i-1]);
+          if (Prev.ClassType=P.ClassType) and (TPasVariable(Prev).VarType=TPasVariable(P).VarType) then
+            dec(i) // e.g. m,n: array of longint
+          else
+            break;
+          end;
+        end;
       if i<0 then
         List.Add(El)
       else
@@ -7591,6 +7608,12 @@ begin
   //writeln('TPasResolver.FinishExceptOnStatement START');
   CheckTopScope(TPasExceptOnScope);
   ResolveImplElement(TPasImplExceptOn(FTopScope.Element).Body);
+  PopScope;
+end;
+
+procedure TPasResolver.FinishParserSpecializeType(El: TPasSpecializeType);
+begin
+  if El=nil then ;
   PopScope;
 end;
 
@@ -10585,6 +10608,9 @@ end;
 
 procedure TPasResolver.ResolveBinaryExpr(El: TBinaryExpr;
   Access: TResolvedRefAccess);
+var
+  Left, Next: TPasExpr;
+  Bin: TBinaryExpr;
 begin
   {$IFDEF VerbosePasResolver}
   //writeln('TPasResolver.ResolveBinaryExpr left=',GetObjName(El.left),' right=',GetObjName(El.right),' opcode=',OpcodeStrings[El.OpCode]);
@@ -10611,7 +10637,27 @@ begin
         RaiseNotYetImplemented(20160922163456,El);
         end;
     end;
-  eopAdd,
+  eopAdd:
+    begin
+    // handle multi add
+    Left:=El.left;
+    while (Left.ClassType=TBinaryExpr) do
+      begin
+      Bin:=TBinaryExpr(Left);
+      if Bin.OpCode<>eopAdd then break;
+      Next:=TBinaryExpr(Left).left;
+      if Next.Parent<>Left then
+        RaiseNotYetImplemented(20210321201257,Left);
+      Left:=Next;
+      end;
+    ResolveExpr(Left,rraRead);
+    repeat
+      Bin:=TBinaryExpr(Left.Parent);
+      if Bin.right<>nil then
+        ResolveExpr(Bin.right,rraRead);
+      Left:=Bin;
+    until Left=El;
+    end;
   eopSubtract,
   eopMultiply,
   eopDivide,
@@ -12939,6 +12985,8 @@ procedure TPasResolver.ComputeBinaryExpr(Bin: TBinaryExpr; out
   StartEl: TPasElement);
 var
   LeftResolved, RightResolved: TPasResolverResult;
+  Left: TPasExpr;
+  SubBin: TBinaryExpr;
 begin
   if (Bin.OpCode=eopSubIdent)
   or ((Bin.OpCode=eopNone) and (Bin.left is TInheritedExpr)) then
@@ -12958,11 +13006,37 @@ begin
     exit;
     end;
 
-  ComputeElement(Bin.left,LeftResolved,Flags-[rcNoImplicitProc],StartEl);
-  ComputeElement(Bin.right,RightResolved,Flags-[rcNoImplicitProc],StartEl);
-  // ToDo: check operator overloading
+  Flags:=Flags-[rcNoImplicitProc,rcNoImplicitProcType];
+  if Bin.OpCode=eopAdd then
+    begin
+    // handle multi-adds without stack
+    Left:=Bin.left;
+    while Left.ClassType=TBinaryExpr do
+      begin
+      SubBin:=TBinaryExpr(Left);
+      if SubBin.OpCode<>eopAdd then break;
+      Left:=SubBin.left;
+      end;
+    // Left is now left-most of multi add
+    ComputeElement(Left,LeftResolved,Flags,StartEl);
+    repeat
+      SubBin:=TBinaryExpr(Left.Parent);
+      ComputeElement(SubBin.right,RightResolved,Flags,StartEl);
 
-  ComputeBinaryExprRes(Bin,ResolvedEl,Flags,LeftResolved,RightResolved);
+      // ToDo: check operator overloading
+      ComputeBinaryExprRes(SubBin,ResolvedEl,Flags,LeftResolved,RightResolved);
+      LeftResolved:=ResolvedEl;
+      Left:=SubBin;
+    until Left=Bin;
+    end
+  else
+    begin
+    ComputeElement(Bin.left,LeftResolved,Flags,StartEl);
+    ComputeElement(Bin.right,RightResolved,Flags,StartEl);
+
+    // ToDo: check operator overloading
+    ComputeBinaryExprRes(Bin,ResolvedEl,Flags,LeftResolved,RightResolved);
+    end;
 end;
 
 procedure TPasResolver.ComputeBinaryExprRes(Bin: TBinaryExpr; out
@@ -17886,7 +17960,7 @@ begin
 
   if GenEl.Body<>nil then
     begin
-    // implementation proc
+    // implementation or anonymous proc
     if SpecializedItem<>nil then
       SpecializedItem.Step:=prssImplementationBuilding;
     GenBody:=GenEl.Body;
@@ -18056,6 +18130,13 @@ begin
   SpecializeElExpr(GenEl,SpecEl,GenEl.Expr,SpecEl.Expr);
   SpecializeElList(GenEl,SpecEl,GenEl.Params,SpecEl.Params,true
     {$IFDEF CheckPasTreeRefCount},'TPasSpecializeType.Params'{$ENDIF});
+
+  if GenEl.SubType<>nil then
+    begin
+    PushParserSpecializeType(SpecEl);
+    SpecializeElType(GenEl,SpecEl,GenEl.SubType,SpecEl.SubType);
+    PopScope;
+    end;
 
   FinishSpecializeType(SpecEl);
   {$IFDEF VerbosePasResolver}
@@ -18374,11 +18455,21 @@ begin
 end;
 
 procedure TPasResolver.SpecializeProcedureExpr(GenEl, SpecEl: TProcedureExpr);
+var
+  GenProc: TPasAnonymousProcedure;
+  NewClass: TPTreeElement;
 begin
   SpecializeExpr(GenEl,SpecEl);
-  if GenEl.Proc=nil then
+  GenProc:=GenEl.Proc;
+  if GenProc=nil then
     RaiseNotYetImplemented(20190808221018,GenEl);
-  RaiseNotYetImplemented(20190808221040,GenEl);
+  if not (GenProc is TPasAnonymousProcedure) then
+    RaiseNotYetImplemented(20210331224052,GenEl);
+  if GenProc.Parent<>GenEl then
+    RaiseNotYetImplemented(20210331223856,GenEl);
+  NewClass:=TPTreeElement(GenProc.ClassType);
+  SpecEl.Proc:=TPasAnonymousProcedure(NewClass.Create(GenProc.Name,SpecEl));
+  SpecializeElement(GenProc,SpecEl.Proc);
 end;
 
 procedure TPasResolver.SpecializeResString(GenEl, SpecEl: TPasResString);
@@ -21734,6 +21825,7 @@ end;
 procedure TPasResolver.BeginScope(ScopeType: TPasScopeType; El: TPasElement);
 begin
   case ScopeType of
+  stSpecializeType: PushParserSpecializeType(El as TPasSpecializeType);
   stWithExpr: PushWithExprScope(El as TPasExpr);
   else
     RaiseMsg(20181210163324,nNotYetImplemented,sNotYetImplemented+' BeginScope',[IntToStr(ord(ScopeType))],nil);
@@ -21751,9 +21843,10 @@ begin
   stResourceString: FinishResourcestring(El as TPasResString);
   stProcedure: FinishProcedure(El as TPasProcedure);
   stProcedureHeader: FinishProcedureType(El as TPasProcedureType);
+  stSpecializeType: FinishParserSpecializeType(El as TPasSpecializeType);
+  stWithExpr: FinishWithDo(El as TPasImplWithDo);
   stExceptOnExpr: FinishExceptOnExpr;
   stExceptOnStatement: FinishExceptOnStatement;
-  stWithExpr: FinishWithDo(El as TPasImplWithDo);
   stForLoopHeader: FinishForLoopHeader(El as TPasImplForLoop);
   stDeclaration: FinishDeclaration(El);
   stAncestors: FinishAncestors(El as TPasClassType);
@@ -22709,6 +22802,12 @@ begin
     Result:=PushTemplateDotScope(TPasGenericTemplateType(LoType),HiType)
   else
     Result:=PushHelperDotScope(HiType);
+end;
+
+function TPasResolver.PushParserSpecializeType(SpecType: TPasSpecializeType
+  ): TPasDotBaseScope;
+begin
+  Result:=PushDotScope(SpecType.DestType);
 end;
 
 function TPasResolver.PushWithExprScope(Expr: TPasExpr): TPasWithExprScope;
@@ -25447,6 +25546,7 @@ function TPasResolver.ResolvedElIsClassOrRecordInstance(
   const ResolvedEl: TPasResolverResult): boolean;
 var
   TypeEl: TPasType;
+  C: TClass;
 begin
   Result:=false;
   if ResolvedEl.BaseType<>btContext then exit;
@@ -25459,10 +25559,14 @@ begin
   else if TypeEl.ClassType=TPasRecordType then
   else
     exit;
-  if (ResolvedEl.IdentEl is TPasVariable)
-      or (ResolvedEl.IdentEl.ClassType=TPasArgument)
-      or (ResolvedEl.IdentEl.ClassType=TPasResultElement) then
-    exit(true);
+  if ResolvedEl.IdentEl<>nil then
+    begin
+    C:=ResolvedEl.IdentEl.ClassType;
+    if C.InheritsFrom(TPasVariable)
+        or (C=TPasArgument)
+        or (C=TPasResultElement) then
+      exit(true);
+    end;
 end;
 
 function TPasResolver.GetResolver(El: TPasElement): TPasResolver;
@@ -27636,7 +27740,9 @@ procedure TPasResolver.ComputeElement(El: TPasElement; out
   var
     TypeEl: TPasType;
   begin
-    if SpecType.CustomData is TPasSpecializeTypeData then
+    if SpecType.SubType<>nil then
+      ComputeElement(SpecType.SubType,ResolvedEl,Flags,StartEl)
+    else if SpecType.CustomData is TPasSpecializeTypeData then
       begin
       TypeEl:=TPasSpecializeTypeData(SpecType.CustomData).SpecializedType;
       if TypeEl=nil then
@@ -28320,6 +28426,7 @@ function TPasResolver.ResolveAliasType(aType: TPasType; SkipTypeAlias: boolean
   ): TPasType;
 var
   C: TClass;
+  SpecType: TPasSpecializeType;
 begin
   while aType<>nil do
     begin
@@ -28333,9 +28440,16 @@ begin
       aType:=NoNil(TResolvedReference(aType.CustomData).Declaration) as TPasType
     else if C=TPasSpecializeType then
       begin
-      if aType.CustomData is TPasSpecializeTypeData then
-        exit(TPasSpecializeTypeData(aType.CustomData).SpecializedType);
-      aType:=TPasSpecializeType(aType).DestType;
+      SpecType:=TPasSpecializeType(aType);
+      if SpecType.SubType<>nil then
+        // e.g. a<b>.c
+        aType:=SpecType.SubType
+      else
+        begin
+        if SpecType.CustomData is TPasSpecializeTypeData then
+          exit(TPasSpecializeTypeData(SpecType.CustomData).SpecializedType);
+        aType:=SpecType.DestType;
+        end;
       end
     else
       exit(aType);
@@ -29621,6 +29735,37 @@ begin
   else if El.Parent is TPasAnonymousProcedure then
     exit;
   Result:=true;
+end;
+
+function TPasResolver.IsAnonymousElType(El: TPasType): boolean;
+// e.g. b$a$a
+var
+  aName: String;
+  i, l: SizeInt;
+  j: Integer;
+begin
+  Result:=false;
+  if AnonymousElTypePostfix='' then exit;
+  aName:=El.Name;
+  l:=length(AnonymousElTypePostfix);
+  i:=length(aName);
+  repeat
+    dec(i,l);
+    if i>0 then
+      begin
+      j:=i;
+      while (j<=l) and (aName[i+j]=AnonymousElTypePostfix[j]) do inc(j);
+      if j>l then
+        begin
+        Result:=true;
+        continue;
+        end;
+      end;
+    if not Result then exit; // no postfix
+    // at least one anonymous eltype postfix
+    Result:=IsValidIdent(LeftStr(aName,i+l));
+    exit;
+  until false;
 end;
 
 function TPasResolver.GetActualBaseType(bt: TResolverBaseType

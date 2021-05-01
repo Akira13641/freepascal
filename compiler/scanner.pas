@@ -1656,6 +1656,7 @@ type
           mac: tmacro;
           macrocount,
           len: integer;
+          foundmacro: boolean;
         begin
           if not eval then
             begin
@@ -1664,6 +1665,7 @@ type
             end;
 
           mac:=nil;
+          foundmacro:=false;
           { Substitue macros and compiler variables with their content/value.
             For real macros also do recursive substitution. }
           macrocount:=0;
@@ -1691,6 +1693,7 @@ type
                   move(mac.buftext^,hs[1],len);
                   searchstr:=upcase(hs);
                   mac.is_used:=true;
+                  foundmacro:=true;
                 end
               else
                 begin
@@ -1709,9 +1712,9 @@ type
           result:=texprvalue.try_parse_number(searchstr);
           if not assigned(result) then
             begin
-              if assigned(mac) and (searchstr='FALSE') then
+              if foundmacro and (searchstr='FALSE') then
                 result:=texprvalue.create_bool(false)
-              else if assigned(mac) and (searchstr='TRUE') then
+              else if foundmacro and (searchstr='TRUE') then
                 result:=texprvalue.create_bool(true)
               else if (m_mac in current_settings.modeswitches) and
                       (not assigned(mac) or not mac.defined) and
@@ -4949,12 +4952,21 @@ type
                        inc(yylexcount);
                        substitutemacro(pattern,mac.buftext,mac.buflen,
                          mac.fileinfo.line,mac.fileinfo.fileindex);
-                     { handle empty macros }
+                       { handle empty macros }
                        if c=#0 then
-                         reload;
-                       readtoken(false);
-                       { that's all folks }
-                       dec(yylexcount);
+                         begin
+                           reload;
+                           { avoid macro nesting error in case of
+                             a sequence of empty macros, see #38802 }
+                           dec(yylexcount);
+                           readtoken(false);
+                         end
+                       else
+                         begin
+                           readtoken(false);
+                           { that's all folks }
+                           dec(yylexcount);
+                         end;
                        exit;
                      end
                     else

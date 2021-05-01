@@ -1230,6 +1230,7 @@ Type
     FInteractive : boolean;
     FProgressMax : integer;
     FProgressCount : integer;
+    FIndentCount : integer;
     FExternalPackages : TPackages;
     // Events
     FOnLog: TLogEvent;
@@ -1238,7 +1239,9 @@ Type
     FOnFinishCopy: TNotifyEvent;
 
     FCachedlibcPath: string;
+{$ifndef NO_THREADING}
     FGeneralCriticalSection: TRTLCriticalSection;
+{$endif NO_THREADING}
 {$ifdef HAS_UNIT_ZIPPER}
     FZipper: TZipper;
     FGZFileStream: TGZFileStream;
@@ -1452,6 +1455,7 @@ Type
     FCompilationOK: boolean;
     FDone: boolean;
     FErrorMessage: string;
+    FWorkerPrefix: string;
     FNotifyMainThreadEvent: PRTLEvent;
     FNotifyStartTask: PRTLEvent;
     FPackage: TPackage;
@@ -2890,7 +2894,9 @@ var
       GccExecutable: string;
   begin
     result := '';
-   GccExecutable := ExeSearch(AddProgramExtension(CrossPrefix+'gcc', OS),Sysutils.GetEnvironmentVariable('PATH'));
+    GccExecutable := ExeSearch(AddProgramExtension(CrossPrefix+'gcc', OS),Sysutils.GetEnvironmentVariable('PATH'));
+    if not(FileExists(GccExecutable)) then
+      GccExecutable := ExeSearch(AddProgramExtension(CrossPrefix+'gnu-gcc', OS),Sysutils.GetEnvironmentVariable('PATH'));
     if FileExists(GccExecutable) then
       begin
 {$ifdef HAS_UNIT_PROCESS}
@@ -2948,12 +2954,12 @@ begin
          ((CPU=riscv64) and (SourceCPU=riscv32)) or
          ((CPU=sparc64) and (SourceCPU=sparc))
          ) or (SourceOS=openbsd) then
-        UseBinutilsPrefix:=true; 
+        UseBinutilsPrefix:=true;
     end;
-  if not UseBinutilsPrefix then
-    CrossPrefix:=''
-  else if Sysutils.GetEnvironmentVariable('BINUTILSPREFIX')<>'' then
+  if Sysutils.GetEnvironmentVariable('BINUTILSPREFIX')<>'' then
     CrossPrefix:=Sysutils.GetEnvironmentVariable('BINUTILSPREFIX')
+  else if not UseBinutilsPrefix then
+    CrossPrefix:=''
   else
     CrossPrefix:=CPUToString(CPU)+'-'+OSToString(OS)+'-';
   if OS in [freebsd, openbsd, dragonfly] then
@@ -3405,17 +3411,17 @@ begin
       begin
       { synchronise with ReadWriteBarrier in mainthread for same reason as above }
       ReadWriteBarrier;
-      FBuildEngine.log(vlInfo,'Compiling: '+APackage.Name);
+      FBuildEngine.log(vlInfo,FWorkerPrefix+'Compiling: '+APackage.Name);
       FCompilationOK:=false;
       try
         FBuildEngine.Compile(APackage);
         FCompilationOK:=true;
-        FBuildEngine.log(vlInfo,'Done compiling: '+APackage.Name);
+        FBuildEngine.log(vlInfo,FWorkerPrefix+'Done compiling: '+APackage.Name);
         RaiseMainEvent;
       except
         on E: Exception do
           begin
-            FErrorMessage := 'Failed compiling: '+APackage.Name+': '+E.Message;
+            FErrorMessage := FWorkerPrefix+'Failed compiling: '+APackage.Name+': '+E.Message;
             FBuildEngine.log(vlInfo,FErrorMessage);
             RaiseMainEvent;
           end;
@@ -6005,6 +6011,7 @@ begin
   // With --start-dir=/path/to/sources.
   FStartDir:=includeTrailingPathDelimiter(GetCurrentDir);
   FExternalPackages:=TPackages.Create(TPackage);
+  FIndentCount:=0;
   FNotifyEventCollection := TNotifyEventCollection.create([neaAfterCompile, neaBeforeCompile, neaAfterInstall, neaBeforeInstall,
                                                            neaAfterClean, neaBeforeClean, neaAfterArchive, neaBeforeArchive,
                                                            neaAfterManifest, neaBeforeManifest, neaAfterPkgList, neaBeforePkgList,
@@ -6019,6 +6026,8 @@ destructor TBuildEngine.Destroy;
 begin
   FreeAndNil(FExternalPackages);
   FreeAndNil(FNotifyEventCollection);
+  If FIndentCount<>0 then
+    Log(vlDebug,Format('Log level at exit is %d',[FIndentCount]));
 
 {$ifndef NO_THREADING}
   DoneCriticalsection(FGeneralCriticalSection);
@@ -6196,6 +6205,19 @@ Var
   FileStat: stat;
 {$endif UNIX}
 begin
+  { First delete file on Darwin OS to avoid codesign issues }
+  if (Defaults.SourceOS=Darwin) then
+    begin
+      D:=IncludeTrailingPathDelimiter(Dest);
+      If DirectoryExists(D) then
+        begin
+          D:=D+ExtractFileName(Src);
+          if FileExists(D) then
+            SysDeleteFile(D);
+       end
+     else if FileExists(Dest) then
+       SysDeleteFile(Dest);
+    end;
   Log(vlInfo,SInfoCopyingFile,[Src,Dest]);
   FIn:=TFileStream.Create(Src,fmopenRead or fmShareDenyNone);
   Try
@@ -6404,13 +6426,33 @@ end;
 
 procedure TBuildEngine.LogIndent;
 begin
-  GLogPrefix:=GLogPrefix+'  ';
+{$ifndef NO_THREADING}
+  EnterCriticalSection(FGeneralCriticalSection);
+{$endif NO_THREADING}
+  Inc(FIndentCount);
+  if not (vlDebug in Installer.FLogLevels) then
+    GLogPrefix:=GLogPrefix+'  '
+  else
+    GLogPrefix:=IntToStr(FIndentCount)+'> ';
+{$ifndef NO_THREADING}
+  LeaveCriticalSection(FGeneralCriticalSection);
+{$endif NO_THREADING}
 end;
 
 
 procedure TBuildEngine.LogUnIndent;
 begin
-  Delete(GLogPrefix,1,2);
+{$ifndef NO_THREADING}
+  EnterCriticalSection(FGeneralCriticalSection);
+{$endif NO_THREADING}
+  Dec(FIndentCount);
+  if not (vlDebug in Installer.FLogLevels) then
+    Delete(GLogPrefix,1,2)
+  else
+    GLogPrefix:=IntToStr(FIndentCount)+'> ';
+{$ifndef NO_THREADING}
+  LeaveCriticalSection(FGeneralCriticalSection);
+{$endif NO_THREADING}
 end;
 
 
@@ -6418,10 +6460,19 @@ procedure TBuildEngine.Log(Level: TVerboseLevel; Msg: String);
 begin
   If Assigned(FOnLog) then
     begin
+{$ifndef NO_THREADING}
+      EnterCriticalSection(FGeneralCriticalSection);
+      try
+{$endif NO_THREADING}
       if Level in [vlInfo,vlDebug] then
         FOnLog(Level,GLogPrefix+Msg)
       else
         FOnLog(Level,Msg);
+{$ifndef NO_THREADING}
+      finally
+        LeaveCriticalSection(FGeneralCriticalSection);
+      end;
+{$endif NO_THREADING}
     end;
 end;
 
@@ -6890,32 +6941,34 @@ begin
           begin
             // Debug information
             Log(vlDebug,SDbgResolvingSourcesOfTarget,[T.Name,MakeTargetString(ACPU,AOS)]);
-            LogIndent;
+            try
+              LogIndent;
 
-            case T.TargetType of
-              ttProgram,
-              ttSharedLibrary,
-              ttUnit,
-              ttImplicitUnit :
-                begin
-                  if T.FTargetSourceFileName<>'' then
-                    Log(vlDebug,SDbgSourceAlreadyResolved,[T.Name])
-                  else
-                    FindMainSource(T);
-                  if T.Dependencies.Count>0 then
-                    FindIncludeSources(T);
-                end;
-              ttExampleUnit,
-              ttExampleProgram :
-                begin
-                  if T.FTargetSourceFileName<>'' then
-                    Log(vlDebug,SDbgSourceAlreadyResolved,[T.Name])
-                  else
-                    FindExampleSource(T);
-                end;
+              case T.TargetType of
+                ttProgram,
+                ttSharedLibrary,
+                ttUnit,
+                ttImplicitUnit :
+                  begin
+                    if T.FTargetSourceFileName<>'' then
+                      Log(vlDebug,SDbgSourceAlreadyResolved,[T.Name])
+                    else
+                      FindMainSource(T);
+                    if T.Dependencies.Count>0 then
+                      FindIncludeSources(T);
+                  end;
+                ttExampleUnit,
+                ttExampleProgram :
+                  begin
+                    if T.FTargetSourceFileName<>'' then
+                      Log(vlDebug,SDbgSourceAlreadyResolved,[T.Name])
+                    else
+                      FindExampleSource(T);
+                  end;
+              end;
+            finally
+              LogUnIndent;
             end;
-
-            LogUnIndent;
           end;
       end;
   finally
@@ -7212,9 +7265,9 @@ begin
         ReadBarrier;
 {$ifdef NO_THREADING}
       Args.Add('-Fl'+FCachedlibcPath);
-{$ELSE}      
+{$ELSE}
       Args.Add('-Fl'+volatile(FCachedlibcPath));
-{$ENDIF}      
+{$ENDIF}
     end;
 
   // Custom options which are added by dependencies
@@ -7469,6 +7522,7 @@ Var
   Env : TStrings;
 begin
   Log(vlInfo,SInfoCompilingTarget,[ATarget.Name]);
+  try
   LogIndent;
   ExecuteCommands(ATarget.Commands,caBeforeCompile);
   If Assigned(ATarget.BeforeCompile) then
@@ -7499,7 +7553,9 @@ begin
         ATarget.AfterCompile(ATarget);
       ExecuteCommands(ATarget.Commands,caAfterCompile);
     end;
+  finally
   LogUnIndent;
+  end;
 end;
 
 
@@ -7510,6 +7566,7 @@ Var
   D : TDependency;
 begin
   Log(vlDebug, Format(SDbgCompilingDependenciesOfTarget, [ATarget.Name]));
+  try
   LogIndent;
   For I:=0 to ATarget.Dependencies.Count-1 do
     begin
@@ -7543,7 +7600,9 @@ begin
             Error(SErrDepUnknownTarget,[D.Value, ATarget.Name, APackage.Name]);
         end;
     end;
+  finally
   LogUnIndent;
+  end;
 end;
 
 
@@ -7552,6 +7611,7 @@ begin
   if ATarget.State<>tsNeutral then
     Error(SErrInvalidState,[ATarget.Name]);
   Log(vlDebug, Format(SDbgConsideringTarget, [ATarget.Name]));
+  try
   LogIndent;
   ATarget.FTargetState:=tsConsidering;
   ResolveDependencies(ATarget.Dependencies,ATarget.Collection as TTargets);
@@ -7563,7 +7623,9 @@ begin
     end
   else
     ATarget.FTargetState:=tsNoCompile;
+  finally
   LogUnIndent;
+  end;
 end;
 
 
@@ -8022,6 +8084,7 @@ begin
   if APackage.State<>tsNeutral then
     Error(SErrInvalidState,[APackage.Name]);
   Log(vlDebug,SDbgConsideringPackage,[APackage.Name]);
+  try
   LogIndent;
   if Defaults.ThreadsAmount=-1 then
     APackage.FTargetState:=tsConsidering;
@@ -8034,6 +8097,7 @@ begin
   else if CheckDependencies(APackage, true)=cdNotYetAvailable then
     begin
       log(vlInfo,'Delaying package '+apackage.name);
+      //LogUnIndent; Done in Finally below
       result := False;
       Exit;
     end;
@@ -8047,7 +8111,9 @@ begin
       APackage.FTargetState:=tsNoCompile;
       inc(FProgressCount);
     end;
+  finally
   LogUnIndent;
+  end;
 end;
 
 
@@ -8674,14 +8740,17 @@ begin
       // that a package finished it's task.
       NotifyThreadWaiting := RTLEventCreate;
       SetLength(Threads,Defaults.ThreadsAmount);
-      try 
+      try
         // Create all worker-threads
         try
           for Thr:=0 to Defaults.ThreadsAmount-1 do
             begin
               Threads[Thr] := TCompileWorkerThread.Create(self,NotifyThreadWaiting);
               if assigned(Threads[Thr]) then
-                inc(ThreadCount);
+                begin
+                  inc(ThreadCount);
+                  Threads[Thr].FWorkerPrefix:=Format('(%d/%d) ',[Thr,Defaults.ThreadsAmount]);
+                end;
             end;
         except
           on E: Exception do
@@ -8697,6 +8766,7 @@ begin
           while not Finished do
             begin
               RTLeventWaitFor(NotifyThreadWaiting);
+              RTLeventResetEvent(NotifyThreadWaiting);
               for Thr:=0 to Defaults.ThreadsAmount-1 do
                 if assigned(Threads[Thr]) and not Finished then
                   ProcessThreadResult(Threads[Thr]);
