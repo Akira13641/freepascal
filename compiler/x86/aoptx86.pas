@@ -5156,6 +5156,8 @@ unit aoptx86;
         InstrMax, Index: Integer;
         UpperLimit, TrySmallerLimit: TCgInt;
 
+        PreMessage: string;
+
         { Data flow analysis }
         TestValMin, TestValMax: TCgInt;
         SmallerOverflow: Boolean;
@@ -5171,11 +5173,16 @@ unit aoptx86;
         SetLength(InstrList, 0);
         InstrMax := -1;
         ThisReg := taicpu(p).oper[1]^.reg;
-        hp1 := p;
 
         case taicpu(p).opsize of
           S_BW, S_BL:
             begin
+{$if defined(i386) or defined(i8086)}
+              { If the target size is 8-bit, make sure we can actually encode it }
+              if not (GetSupReg(ThisReg) in [RS_EAX,RS_EBX,RS_ECX,RS_EDX]) then
+                Exit;
+{$endif i386 or i8086}
+
               UpperLimit := $FF;
               MinSize := S_B;
               if taicpu(p).opsize = S_BW then
@@ -5200,6 +5207,8 @@ unit aoptx86;
         SmallerOverflow := False;
         RegChanged := False;
 
+        hp1 := p;
+
         while GetNextInstructionUsingReg(hp1, hp1, ThisReg) and
           (hp1.typ = ait_instruction) and
           (
@@ -5209,6 +5218,7 @@ unit aoptx86;
             RegInInstruction(ThisReg, hp1)
           ) do
           begin
+
             case taicpu(hp1).opcode of
               A_INC,A_DEC:
                 begin
@@ -5225,6 +5235,92 @@ unit aoptx86;
                     begin
                       Dec(TestValMin);
                       Dec(TestValMax);
+                    end;
+                end;
+
+              A_CMP:
+                begin
+                  if (taicpu(hp1).oper[1]^.typ <> top_reg) or
+                    { Has to be an exact match on the register }
+                    (taicpu(hp1).oper[1]^.reg <> ThisReg) or
+                    (taicpu(hp1).oper[0]^.typ <> top_const) or
+                    { Make sure the comparison value is not smaller than the
+                      smallest allowed signed value for the minimum size (e.g.
+                      -128 for 8-bit) }
+                    not (
+                      ((taicpu(hp1).oper[0]^.val and UpperLimit) = taicpu(hp1).oper[0]^.val) or
+                      { Is it in the negative range? }
+                      (((not taicpu(hp1).oper[0]^.val) and (UpperLimit shr 1)) = (not taicpu(hp1).oper[0]^.val))
+                    ) then
+                    Break;
+
+                  TestValMin := TestValMin - taicpu(hp1).oper[0]^.val;
+                  TestValMax := TestValMax - taicpu(hp1).oper[0]^.val;
+
+                  if (TestValMin < TrySmallerLimit) or (TestValMax < TrySmallerLimit) or
+                    (TestValMin > UpperLimit) or (TestValMax > UpperLimit) then
+                    { Overflow }
+                    Break;
+
+                  { Check to see if the active register is used afterwards }
+                  TransferUsedRegs(TmpUsedRegs);
+                  IncludeRegInUsedRegs(ThisReg, TmpUsedRegs);
+                  if not RegUsedAfterInstruction(ThisReg, hp1, TmpUsedRegs) then
+                    begin
+                      case MinSize of
+                        S_B:
+                          TargetSubReg := R_SUBL;
+                        S_W:
+                          TargetSubReg := R_SUBW;
+                        else
+                          InternalError(2021051002);
+                      end;
+
+                      { Update the register to its new size }
+                      setsubreg(ThisReg, TargetSubReg);
+
+                      taicpu(hp1).oper[1]^.reg := ThisReg;
+                      taicpu(hp1).opsize := MinSize;
+
+                      { Convert the input MOVZX to a MOV }
+                      if (taicpu(p).oper[0]^.typ = top_reg) and
+                        SuperRegistersEqual(taicpu(p).oper[0]^.reg, ThisReg) then
+                        begin
+                          { Or remove it completely! }
+                          DebugMsg(SPeepholeOptimization + 'Movzx2Nop 1a', p);
+                          RemoveCurrentP(p);
+                          p_removed := True;
+                        end
+                      else
+                        begin
+                          DebugMsg(SPeepholeOptimization + 'Movzx2Mov 1a', p);
+                          taicpu(p).opcode := A_MOV;
+                          taicpu(p).oper[1]^.reg := ThisReg;
+                          taicpu(p).opsize := MinSize;
+                        end;
+
+                      if (InstrMax >= 0) then
+                        begin
+                          for Index := 0 to InstrMax do
+                            begin
+
+                              { If p_removed is true, then the original MOV/Z was removed
+                                and removing the AND instruction may not be safe if it
+                                appears first }
+                              if (InstrList[Index].oper[InstrList[Index].ops - 1]^.typ <> top_reg) then
+                                InternalError(2020112311);
+
+                              if InstrList[Index].oper[0]^.typ = top_reg then
+                                InstrList[Index].oper[0]^.reg := ThisReg;
+
+                              InstrList[Index].oper[InstrList[Index].ops - 1]^.reg := ThisReg;
+                              InstrList[Index].opsize := MinSize;
+                            end;
+
+                        end;
+
+                      Result := True;
+                      Exit;
                     end;
                 end;
 
@@ -5490,7 +5586,7 @@ unit aoptx86;
                   end;
 
                   { Update the register to its new size }
-                  ThisReg := newreg(R_INTREGISTER, getsupreg(ThisReg), TargetSubReg);
+                  setsubreg(ThisReg, TargetSubReg);
 
                   if TargetSize = MinSize then
                     begin
